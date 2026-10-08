@@ -1,0 +1,86 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "conductor"
+version = "0.1.0"
+description = "Framework-independent operations library for internal delivery and infrastructure"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+azure-devops = ["httpx>=0.28,<0.29"]
+argocd = ["httpx>=0.28,<0.29"]
+sonarqube = ["httpx>=0.28,<0.29"]
+iis = ["pypsrp>=0.9.1,<0.10"]
+kerberos = ["pypsrp[kerberos]>=0.9.1,<0.10; sys_platform != 'win32'"]
+
+[dependency-groups]
+dev = [
+    "build>=1.2,<2",
+    "hatchling>=1.27,<2",
+    "httpx>=0.28,<0.29",
+    "mypy>=1.15,<2",
+    "pytest>=8.3,<10",
+    "pytest-cov>=6,<8",
+    "ruff>=0.11,<1",
+    "types-requests>=2.32",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/conductor"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/pyproject.toml",
+    "/README.md",
+    "/LIBRARY_DESIGN.md",
+    "/VERIFICATION.md",
+    "/CHANGELOG.md",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: opt-in tests against explicitly approved non-production targets",
+    "http_integration: read-only Azure DevOps, Argo CD, and SonarQube live checks",
+    "packaging: offline wheel/sdist build and clean-environment installation tests",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src/conductor"]
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["pypsrp.*"]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+branch = true
+source = ["conductor"]
+
+[tool.coverage.report]
+show_missing = true
