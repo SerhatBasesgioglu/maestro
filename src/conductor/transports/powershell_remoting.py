@@ -108,8 +108,9 @@ def _make_session(config: PowerShellRemotingConfig) -> _Session:
         from conductor.transports._pypsrp import _PypsrpSession
     except ImportError:
         raise MissingDependencyError(
-            "Install conductor[iis] for PowerShell remoting. Non-Windows Kerberos also "
-            "requires conductor[iis,kerberos] and a configured system Kerberos installation."
+            "Install conductor[windows] or conductor[iis] for PowerShell remoting. "
+            "Non-Windows Kerberos also requires conductor[windows,kerberos] or "
+            "conductor[iis,kerberos] and a configured system Kerberos installation."
         ) from None
     return _PypsrpSession(config)
 

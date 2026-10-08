@@ -1,9 +1,10 @@
 """A small synchronous test seam for remote PowerShell execution."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Protocol
 
-from conductor.transports.models import PowerShellResult, PowerShellValue
+from conductor.transports.models import CommandResult, PowerShellResult, PowerShellValue
 
 
 class PowerShellTransport(Protocol):
@@ -22,3 +23,28 @@ class PowerShellTransport(Protocol):
     ) -> PowerShellResult:
         """Execute trusted source on the explicit remote target, never locally."""
         ...
+
+
+class SshTransport(Protocol):
+    """Borrowed remote command/file seam; no local fallback or automatic write replays.
+
+    Implementers own host-key verification, credentials, argument quoting, and
+    bounded process lifetime. Uploads must use SSH, never a plain rsync daemon.
+    """
+
+    def execute(
+        self,
+        arguments: Sequence[str],
+        *,
+        input: bytes | None = None,
+        timeout: float | None = None,
+    ) -> CommandResult: ...
+
+    def upload(
+        self,
+        source: str | Path,
+        destination: str,
+        *,
+        dry_run: bool = False,
+        timeout: float | None = None,
+    ) -> CommandResult: ...

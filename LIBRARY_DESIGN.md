@@ -68,6 +68,7 @@ src/conductor/
     protocols.py              # Injectable synchronous execution seam
     powershell_remoting.py    # Validated config, ownership, lazy SDK loading
     _pypsrp.py                # Private WSMan/PSRP adapter and deadline boundaries
+    ssh.py                    # Explicit host-key/key auth, bounded SSH/rsync processes
   iis/
     client.py                 # Borrowed-transport resource entry point
     application_pools.py      # State/start/stop contracts and polling
@@ -87,7 +88,19 @@ src/conductor/
      client.py, config.py       # Explicit server and caller-supplied bearer token
      projects.py                # Project reads via the component API
      quality_gates.py           # Project/analysis gate reads with explicit selectors
-     models.py, errors.py       # Typed project/gate models and resource errors
+      models.py, errors.py       # Typed project/gate models and resource errors
+   linux/
+     client.py                 # Borrowed SSH transport; no deployment service layer
+     services.py               # Independent systemd state/start/stop APIs
+     files.py                  # Independent legacy single-file rsync upload
+     compose.py                # Explicit remote Compose down/up and YAML image edits
+      _yaml.py, _scripts.py     # Lazy round-trip YAML and atomic remote-file helper
+      models.py, errors.py       # Typed command/file contracts and sanitized failures
+    windows/
+      client.py                 # Borrowed PowerShell remoting transport
+      services.py               # Independent Windows SCM state/start/stop APIs
+      _scripts.py               # Constant remote PowerShell source
+      models.py, errors.py      # Typed native states/results and sanitized failures
 tests/
   unit/
    integration/                # Opt-in IIS mutations and read-only HTTP smoke tests
@@ -122,6 +135,16 @@ argocd.applications.sync(...)
 argocd.applications.wait_for_health(...)
 sonar.projects.get(...)
 sonar.quality_gates.get_status(...)
+linux.services.get_state(...)
+linux.services.start(...)
+linux.services.stop(...)
+linux.files.upload(...)
+linux.compose.down(...)
+linux.compose.up(...)
+linux.compose.set_image(...)
+windows.services.get_state(...)
+windows.services.start(...)
+windows.services.stop(...)
 
 # Proposed, not implemented:
 k8s.workloads.get_deployment(...)
@@ -185,6 +208,59 @@ Scanner execution, CE waiting, and release approval are outside this slice.
 All integrations retain HTTP error categories and reject malformed schemas. HTTP
 timeouts bound I/O phases, not guaranteed elapsed time. The Argo health wait checks
 a single monotonic deadline before/after requests and bounds polling sleeps.
+
+## Independent Linux APIs
+
+Linux resources share an injectable SSH command/file protocol, not a business
+service layer. Each systemd command, rsync upload, Compose down/up, or YAML image
+edit is independently callable. No API chains stop/copy/start or down/edit/up,
+restores state, approves mutations, or introduces container readiness policy.
+
+The default transport runs caller-installed OpenSSH/rsync on POSIX callers, with
+explicit keys/known-hosts, no discovery or write replays, and finite process
+budgets. Compose targets an explicit remote Unix Docker socket and one remote
+file/project. Image edits parse with optional caller-side ruamel.yaml and use a
+remote Python 3 standard-library helper for fingerprint checks, advisory locking,
+metadata-preserving atomic replacement. External writers must still coordinate;
+offline success does not establish host trust, authentication, target permissions,
+Linux metadata handling, actual transfers, or Docker/systemd behavior.
+
+## Independent Windows service API
+
+Windows service management shares the existing injectable PowerShell remoting
+protocol and caller-owned `PowerShellRemoting` lifecycle; it is not a new transport
+or a workflow. `get_state(name, timeout=None)` reads a typed native service state.
+`start` and `stop` each issue one remote operation and return
+`ServiceChangeResult(name, initial_state, final_state, changed)`. No polling,
+deployment/service sequencing, restoration, or health policy is included.
+
+The API uses the exact installed service name (not display name), literal service
+lookup, and separately bound scalar parameters. The remote helper constructs
+`ServiceController` with its default constructor and sets `ServiceName` explicitly;
+names are limited to 256 UTF-16 code units and reject unpaired surrogates. It
+reports the seven native states—`Stopped`, `StartPending`, `StopPending`, `Running`,
+`ContinuePending`, `PausePending`, and `Paused`—plus `Unknown`. Start is a no-op
+from `Running`, calls `ServiceController.Start()` only from `Stopped`, and rejects
+paused/pending/unknown states. Stop is a no-op from `Stopped` and dispatches only
+from `Running` or `Paused`; a constant C# helper loaded with `Add-Type` calls
+`OpenSCManager`, `OpenService`, and
+`ControlService(SERVICE_CONTROL_STOP)`, then closes its handles. An active
+dependent service is not stopped or cascaded; SCM error 1051 is reported as a
+dependency failure. Pending/unknown states are rejected, and no resume operation
+exists. The SCM may start ordinary dependencies during start, but Conductor never
+enables disabled services. The observed final state may be transitional and is not
+a health guarantee.
+
+Missing, denied, active-dependent, disabled, native-command, and protocol failures
+remain distinguishable without exposing raw remote messages. As with IIS, remote
+timeouts are cooperative and a lost response does not prove a mutation was not
+applied. `ControlService` may block while the service handles its control; the
+transport deadline is not hard cancellation. One remote mutation call and no
+library polling do not imply that the native call cannot wait. A Windows PowerShell
+5.1+ full-language endpoint supporting `Add-Type`, .NET, and native SCM invocation,
+trusted HTTPS/authentication, and suitable service management rights are
+prerequisites. Constrained Language Mode/JEA is not compatible by endpoint selection
+alone.
 
 ## Initial use case: remote IIS
 
@@ -250,10 +326,13 @@ check, rollback, or concurrency-control mechanism.
 ## Packaging and compatibility
 
 One versioned distribution with optional dependencies; the base package has none.
-Implemented extras: `conductor[iis]`, non-Windows Kerberos support via
+Implemented extras: `conductor[iis]`, `conductor[windows]` (the same optional
+pypsrp dependency as IIS), non-Windows Kerberos support via
 `conductor[iis,kerberos]`, and the independent `azure-devops`, `argocd`, and
-`sonarqube` extras using HTTPX 0.28.x. Imports do not connect to targets, require
-local IIS, or eagerly import optional dependencies.
+`sonarqube` extras using HTTPX 0.28.x. The `linux` extra adds ruamel.yaml only for
+Compose image edits; SSH/rsync use installed POSIX system tools. Imports do not
+connect to targets, require local IIS/Windows APIs, or eagerly import optional
+dependencies.
 
 Use an approved private feed, pin consumer versions, and record public changes in
 release notes. Follow Semantic Versioning; before 1.0, minor versions may change
@@ -269,16 +348,18 @@ write replay avoidance, ownership, and sensitive-data handling. No live target i
 needed to test public library APIs.
 
 Packaging tests build a wheel/sdist and install without optional dependencies in
-a clean environment. Adapter tests use the installed optional SDK but intercept
-remote calls. Live tests are opt-in, require an explicit HTTPS endpoint and
-confirmed disposable pool, and attempt restoration of its initial stable state.
-Separate explicitly approved HTTP live smoke tests perform reads only. Real
-HTTPX request construction is tested with MockTransport and sockets are blocked
-in unit tests; base-wheel fake operations run without any integration SDK.
+a clean environment, including Windows public imports and a fake service read.
+Adapter tests use the installed optional SDK but intercept remote calls. Live tests
+are opt-in, require an explicit HTTPS endpoint and confirmed disposable pool, and
+attempt restoration of its initial stable state. Separate explicitly approved HTTP
+live smoke tests perform reads only. Real HTTPX request construction is tested with
+MockTransport and sockets are blocked in unit tests; base-wheel fake operations run
+without any integration SDK. The Windows SCM behavior and real remoting/authentication
+still require a separately approved target; no live Windows service target is claimed.
 
 Offline tests cannot establish real Kerberos, certificate trust, permissions,
-IIS/API server compatibility, JEA/RBAC restrictions, mutation/concurrency behavior,
-or reliable remote cancellation.
+IIS/Windows service/API server compatibility, JEA/RBAC restrictions,
+mutation/concurrency behavior, or reliable remote cancellation.
 See VERIFICATION.md for the claim owners and evidence boundaries.
 
 ## Sequence and remaining decisions
@@ -286,12 +367,15 @@ See VERIFICATION.md for the claim owners and evidence boundaries.
 1. **Chosen:** Python 3.11+ and synchronous APIs.
 2. **Chosen topology:** Windows domain agent, Kerberos, trusted HTTPS. Verify the
    actual agent identity, network, DNS/SPNs, trust, endpoint, and permissions.
-3. **Implemented offline:** minimal remoting and IIS pool get/start/stop APIs.
+3. **Implemented offline:** minimal remoting and IIS pool get/start/stop APIs;
+   independent Windows service state/start/stop APIs.
 4. Verify a disposable non-production pool, then add consumer-owned pipeline scripts.
 5. **Implemented offline:** Azure DevOps Git/CAS ref updates and pipeline runs,
    Argo CD application reads/sync/health waits, and SonarQube projects/gates.
 6. Validate approved HTTP targets and disposable mutations; add Kubernetes only
-   when a concrete consumer requirement is authorized.
+    when a concrete consumer requirement is authorized.
+   **Implemented offline:** independent Linux systemd, rsync, and Compose APIs;
+   validate approved SSH targets and disposable mutations separately.
 7. Add workflows after repeated requirements establish a useful contract.
 8. Add independent CLI/API/MCP wrappers only if needed.
 

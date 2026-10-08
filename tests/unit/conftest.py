@@ -1,6 +1,8 @@
 import json
 import socket
+import subprocess
 from collections import deque
+from pathlib import Path
 
 import pytest
 
@@ -51,3 +53,16 @@ def forbid_unit_test_network(monkeypatch):
 
     monkeypatch.setattr(socket.socket, "connect", forbidden)
     monkeypatch.setattr(socket, "create_connection", forbidden)
+
+
+@pytest.fixture(autouse=True)
+def forbid_unit_test_ssh_processes(monkeypatch):
+    original = subprocess.Popen
+
+    def guarded(arguments, *args, **kwargs):
+        executable = arguments if isinstance(arguments, str) else arguments[0]
+        if Path(executable).name in ("ssh", "rsync"):
+            raise AssertionError("Unit tests must not launch live SSH/rsync processes.")
+        return original(arguments, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", guarded)

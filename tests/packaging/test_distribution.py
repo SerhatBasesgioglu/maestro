@@ -33,7 +33,9 @@ def test_distribution_contains_typed_library_and_optional_only_runtime_dependenc
         names = archive.namelist()
         assert "conductor/py.typed" in names
         assert "conductor/iis/application_pools.py" in names
-        for integration in ("azure_devops", "argocd", "sonarqube"):
+        assert "conductor/windows/client.py" in names
+        assert "conductor/windows/services.py" in names
+        for integration in ("azure_devops", "argocd", "sonarqube", "linux"):
             assert f"conductor/{integration}/client.py" in names
         assert not any(name.startswith("tests/") for name in names)
         metadata_name = next(name for name in names if name.endswith(".dist-info/METADATA"))
@@ -46,6 +48,8 @@ def test_distribution_contains_typed_library_and_optional_only_runtime_dependenc
         "sonarqube",
         "iis",
         "kerberos",
+        "linux",
+        "windows",
     }
     assert all("extra ==" in requirement for requirement in metadata.get_all("Requires-Dist"))
     with tarfile.open(sdist) as archive:
@@ -91,14 +95,24 @@ from conductor.azure_devops import AzureDevOpsClient, AzureDevOpsConfig
 from conductor.common.errors import MissingDependencyError
 from conductor.common.http import HttpResponse
 from conductor.iis import ApplicationPoolState, IisClient
+from conductor.linux import ComposeProject, LinuxClient, ServiceState
 from conductor.sonarqube import SonarQubeClient, SonarQubeConfig, QualityGateStatus
-from conductor.transports import PowerShellRemoting, PowerShellResult
+from conductor.windows import (
+    ServiceChangeResult, ServiceCommandError, ServiceDependencyError,
+    ServiceDisabledError, ServiceNotFoundError, ServiceProtocolError,
+    ServiceState as WindowsServiceState, ServiceStateError, WindowsClient,
+)
+from conductor.transports import (
+    CommandResult, OpenSshTransport, PowerShellRemoting, PowerShellResult,
+)
 
 assert conductor.__version__ == importlib.metadata.version("conductor") == "0.1.0"
 assert list(logging.getLogger().handlers) == root_handlers
 assert not any(name == "pypsrp" or name.startswith("pypsrp.") for name in sys.modules)
+assert importlib.util.find_spec("pypsrp") is None
 assert not any(
-    name in sys.modules for name in ("fastapi", "mcp", "kubernetes", "requests", "httpx")
+    name in sys.modules for name in
+    ("fastapi", "mcp", "kubernetes", "requests", "httpx", "ruamel.yaml")
 )
 
 class FakeTransport:
@@ -109,6 +123,22 @@ class FakeTransport:
 result = IisClient(transport=FakeTransport()).application_pools.stop("Disposable")
 assert result.final_state is ApplicationPoolState.STOPPED
 assert result.changed is False
+
+class FakeWindowsTransport:
+    def execute(self, script, *, parameters=None, timeout=None):
+        assert parameters == {"Name": "ConductorDisposable", "Operation": "Get"}
+        return PowerShellResult(
+            output=(
+                '{"initial_state":"Stopped","final_state":"Stopped",'
+                '"changed":false}',
+            )
+        )
+
+windows = WindowsClient(transport=FakeWindowsTransport(), timeout=60)
+assert windows.services.get_state("ConductorDisposable") == WindowsServiceState("Stopped")
+assert not any(name == "pypsrp" or name.startswith("pypsrp.") for name in sys.modules)
+assert importlib.util.find_spec("pypsrp") is None
+
 transport = PowerShellRemoting(endpoint="https://example.invalid:5986/wsman")
 assert not transport.is_open
 try:
@@ -152,9 +182,29 @@ with SonarQubeClient(SonarQubeConfig("https://example.invalid", "TOKEN")) as son
     else:
         raise AssertionError("HTTP requests must require their optional dependency")
 assert "httpx" not in sys.modules
+
+class FakeSsh:
+    def execute(self, arguments, *, input=None, timeout=None):
+        assert arguments[0] in ("systemctl", "env")
+        return CommandResult(0, "LoadState=loaded\nActiveState=active\n")
+
+    def upload(self, source, destination, *, dry_run=False, timeout=None):
+        raise AssertionError("No file upload is part of this API smoke check")
+
+linux = LinuxClient(transport=FakeSsh())
+assert linux.services.get_state("legacy") is ServiceState.ACTIVE
+assert linux.compose.up(ComposeProject("/app/compose.yaml", "app")).operation == "up"
+try:
+    linux.compose.set_image(ComposeProject("/app/compose.yaml", "app"), "api", "app:new")
+except MissingDependencyError:
+    pass
+else:
+    raise AssertionError("Compose image editing must require its optional YAML parser")
+assert "ruamel.yaml" not in sys.modules
+assert list(logging.getLogger().handlers) == root_handlers
 print(json.dumps({
-    "base_import": "ok", "iis_without_sdk": "ok", "fake_operation": "ok",
-    "http_without_sdk": "ok"
+    "base_import": "ok", "iis_without_sdk": "ok", "windows_without_sdk": "ok",
+    "fake_operation": "ok", "http_without_sdk": "ok", "linux_without_sdk": "ok"
 }))
 """
     completed = subprocess.run(
@@ -168,6 +218,8 @@ print(json.dumps({
     assert json.loads(completed.stdout) == {
         "base_import": "ok",
         "iis_without_sdk": "ok",
+        "windows_without_sdk": "ok",
         "fake_operation": "ok",
         "http_without_sdk": "ok",
+        "linux_without_sdk": "ok",
     }

@@ -83,3 +83,31 @@ def ca_file(value: str | Path | None) -> None:
         valid = False
     if not valid:
         raise ConfigurationError("ca_bundle must name a PEM CA file.")
+
+
+def remote_posix_path(value: str, name: str, *, file: bool = False) -> str:
+    """Require an explicit remote Linux path, not a URL, glob, or relative path."""
+    non_empty(value, name)
+    if (
+        not value.startswith("/")
+        or value.startswith("//")
+        or any(part in (".", "..") for part in value.split("/"))
+        or any(char in value for char in "*?[]")
+        or (file and (value == "/" or value.endswith("/")))
+    ):
+        raise ConfigurationError(f"{name} must be an absolute literal remote POSIX path.")
+    return value
+
+
+def local_regular_file(value: str | Path, name: str) -> Path:
+    """Validate one literal local file, refusing a final-component symlink."""
+    if not isinstance(value, (str, Path)) or not str(value):
+        raise ConfigurationError(f"{name} must name an existing local regular file.")
+    try:
+        path = Path(value).absolute()
+        valid = path.is_file() and not path.is_symlink()
+    except (OSError, ValueError):
+        valid = False
+    if not valid or any(ord(char) < 32 or ord(char) == 127 for char in str(value)):
+        raise ConfigurationError(f"{name} must name an existing local regular file.")
+    return path

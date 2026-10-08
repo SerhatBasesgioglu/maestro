@@ -25,7 +25,9 @@ azure-devops = ["httpx>=0.28,<0.29"]
 argocd = ["httpx>=0.28,<0.29"]
 sonarqube = ["httpx>=0.28,<0.29"]
 iis = ["pypsrp>=0.9.1,<0.10"]
+windows = ["pypsrp>=0.9.1,<0.10"]
 kerberos = ["pypsrp[kerberos]>=0.9.1,<0.10; sys_platform != 'win32'"]
+linux = ["ruamel.yaml>=0.18,<0.19"]
 
 [dependency-groups]
 dev = [
@@ -36,6 +38,7 @@ dev = [
     "pytest>=8.3,<10",
     "pytest-cov>=6,<8",
     "ruff>=0.11,<1",
+    "ruamel.yaml>=0.18,<0.19",
     "types-requests>=2.32",
 ]
 

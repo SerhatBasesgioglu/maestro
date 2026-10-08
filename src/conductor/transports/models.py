@@ -38,3 +38,12 @@ class PowerShellResult:
 
     output: tuple[PowerShellValue, ...] = field(default=(), repr=False)
     errors: tuple[PowerShellError, ...] = ()
+
+
+@dataclass(frozen=True)
+class CommandResult:
+    """An SSH/rsync exit status; potentially sensitive output is never represented."""
+
+    exit_code: int
+    stdout: str = field(default="", repr=False)
+    stderr: str = field(default="", repr=False)

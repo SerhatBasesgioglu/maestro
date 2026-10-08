@@ -127,7 +127,8 @@ def _translate(exc: Exception, phase: str) -> ConductorError:
     if isinstance(exc, ImportError):
         return MissingDependencyError(
             "Remoting authentication dependencies are unavailable. On non-Windows systems, "
-            "install conductor[iis,kerberos] and configure system Kerberos support."
+            "install conductor[windows,kerberos] or conductor[iis,kerberos] and configure "
+            "system Kerberos support."
         )
     # Do not chain external errors or retain their response bodies in exceptions.
     return TransportError("Remote communication failed; a dispatched command may have completed.")

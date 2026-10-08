@@ -4,8 +4,9 @@ A reusable, synchronous Python 3.11+ library for internal development, DevOps,
 infrastructure, and delivery operations. The library is the product: no CLI,
 pipeline runtime, API service, or MCP server is required to use or test it.
 
-**Implemented integrations:** remote IIS application pools, Azure DevOps Git and
-pipeline runs, Argo CD applications, and SonarQube projects/quality gates.
+**Implemented integrations:** remote IIS application pools and Windows services,
+Azure DevOps Git and pipeline runs, Argo CD applications, SonarQube projects/quality
+gates, and Linux systemd/rsync/Docker Compose APIs over SSH.
 Kubernetes and cross-platform workflows remain planned; there are no empty
 integration placeholders or mandatory consumer wrappers.
 
@@ -15,11 +16,14 @@ Publish to your approved private Python feed, then pin the version in consumers:
 
 ```powershell
 python -m pip install "conductor[iis]==0.1.0"
+python -m pip install "conductor[windows]==0.1.0"
 python -m pip install "conductor[azure-devops,argocd,sonarqube]==0.1.0"
+python -m pip install "conductor[linux]==0.1.0"
 ```
 
-The base distribution has no runtime dependencies. IIS remoting uses optional
-`pypsrp` 0.9.x. Windows Kerberos uses SSPI and does not require the non-Windows
+The base distribution has no runtime dependencies. IIS remoting and Windows
+service management use optional `pypsrp` 0.9.x, selected by the `iis` and `windows`
+extras respectively. Windows Kerberos uses SSPI and does not require the non-Windows
 Kerberos extra. For a separately configured Linux/macOS Kerberos caller, install
 `conductor[iis,kerberos]`; native GSSAPI/Kerberos prerequisites are also needed.
 Non-Windows live authentication has not been validated for this project.
@@ -27,6 +31,10 @@ Non-Windows live authentication has not been validated for this project.
 The independent `azure-devops`, `argocd`, and `sonarqube` extras use HTTPX 0.28.x.
 Install only the integrations you need. Importing or constructing any client
 does not load its optional HTTP/remoting dependency or open a connection.
+
+Linux SSH/rsync commands use installed system tools rather than a Python SSH SDK.
+The optional `linux` extra supplies ruamel.yaml 0.18.x **only for Compose image-file
+edits**. Importing Linux clients does not load YAML libraries or start processes.
 
 No public-registry publication or feed configuration is included. Confirm your
 private feed's package-name availability, release ownership, and approval policy
@@ -190,6 +198,91 @@ must be verified against your target.
   external error bodies/messages are not chained into library errors. Avoid wire
   logging and traceback-local dumps in credential-bearing consumers.
 
+## Remote Linux APIs
+
+These are independent APIs, **not a deployment/service workflow**. Legacy file
+uploads do not stop/start systemd services; Compose operations never invoke rsync.
+Consumers decide sequencing, authorization, restoration, and target serialization.
+
+```python
+from conductor.linux import ComposeProject, LinuxClient
+from conductor.transports import OpenSshTransport, SshConfig
+
+ssh = OpenSshTransport(
+    SshConfig(
+        host="linux-test.company.local",
+        username="deploy",
+        identity_file="/secure/conductor/id_ed25519",
+        known_hosts="/secure/conductor/known_hosts",
+        command_timeout=120,
+    )
+)
+linux = LinuxClient(transport=ssh, timeout=120)
+# sudo=True explicitly requests sudo -n for systemd/Compose, never for rsync.
+```
+
+| API | Contract |
+| --- | --- |
+| `linux.services.get_state("legacy.service")` | Read typed systemd active state; missing units raise `ServiceNotFoundError`. |
+| `linux.services.stop("legacy.service")` / `.start(...)` | Dispatch one blocking `systemctl` command; success is not app health, and no restoration/polling is added. |
+| `linux.files.upload("app.jar", "/opt/legacy/app.jar", dry_run=False)` | Rsync one local regular file over the same verified SSH target; no directory mirroring, deletion, source removal, or sudo. |
+| `linux.compose.down(project)` | Stop/remove this project's containers/networks; no volume/image deletion or orphan-removal option is requested. |
+| `linux.compose.up(project)` | Detached `up --no-build`; no readiness guarantee. |
+| `linux.compose.set_image(project, "api", "registry/app:v2", expected_image="registry/app:v1")` | Edit one service's remote YAML image only; does not pull, restart, run Compose, or upload with rsync. |
+
+Construct an explicit project for each Compose call:
+
+```python
+project = ComposeProject(
+    compose_file="/opt/container-app/compose.yaml",
+    project_name="container-app",
+    # env_file="/opt/container-app/deploy.env",  # Explicit when needed.
+)
+```
+
+### Linux prerequisites and limits
+
+- The real process adapter requires a **POSIX caller** with trusted OpenSSH, and
+  patched rsync **3.x on both ends** for uploads. The bundled macOS rsync 2.x is
+  unsupported; configure `rsync_executable` to an installed current version.
+  No rsync daemon or remote-to-remote/local fallback is used.
+- Supply a DNS/IPv4 host, account, non-interactive private-key file, and an
+  independently verified known-hosts file. Keep credentials outside the repository.
+  SSH configuration, password/agent authentication, proxies, forwarding, automatic
+  host-key enrollment, and command retries are disabled. IPv6/jump hosts and
+  encrypted-key prompting are not supported by this initial adapter.
+- The target needs systemd for service calls, writable destination directories for
+  uploads, and Docker Compose **v2** for container calls. Compose uses an explicit
+  remote Unix Docker socket, file, project, and project directory. Implicit `.env`
+  loading is disabled; supply `env_file` when needed. Other Compose YAML includes,
+  interpolation, hooks, mounts, and Docker registry/config behavior remain native
+  target behavior: approve the file and target environment before invoking it.
+- `sudo=True` uses non-interactive `sudo -n`; it neither configures permissions nor
+  makes arbitrary SSH/Compose source a sandbox. Rsync still runs as the SSH user.
+- Image edits additionally require `conductor[linux]` on the caller and Python 3
+  on the remote Linux target. The file must be UTF-8, regular, single-linked, at
+  most 1 MiB, without special permission bits. Final symlinks and whole-service
+  anchors/aliases are refused. Comments/quotes are preserved; formatting may change.
+- Image edits use a fingerprint, a persistent sibling `.conductor.lock` advisory
+  lock, and same-directory atomic replacement. Owner/mode/xattrs are preserved or
+  the edit fails; inode/mtime change. Cooperating Conductor writers are serialized,
+  but **external editors must also coordinate**; a fingerprint is not a distributed
+  lock or a guaranteed CAS against unrelated writers. This supports one YAML file,
+  not an effective multi-file/include/interpolated Compose model.
+- Timeouts cap each local SSH/rsync process; image reads/edits share one monotonic
+  budget. Process startup and cleanup may add elapsed time. Timeout/interruption
+  kills the local process group, **not necessarily the remote command**. A failed
+  call may already have changed service/container/file state; inspect before replay.
+- `LinuxCommandError` and `RsyncError` retain only exit status. Shared
+  `TransportError` covers SSH's ambiguous status 255 (including host-key/auth errors).
+  Raw stdout/stderr/file contents are omitted from error text and result reprs.
+  Do not expose process arguments, wire diagnostics, or traceback-local dumps.
+
+Offline tests capture subprocess arguments and fake remote responses; the helper
+is also exercised against isolated temporary files. No live Linux target has been
+contacted. Host-key/authentication, sudo rules, Linux metadata/ACL/SELinux handling,
+Docker/systemd behavior, and actual transfers still need approved live validation.
+
 ## Remote IIS usage
 
 ```python
@@ -313,6 +406,76 @@ errors. **Do not enable pypsrp wire-level DEBUG logging or traceback-local dumps
 in credential-bearing processes**: those third-party/application facilities can
 expose sensitive data.
 
+## Remote Windows services
+
+Windows service management is an independent API over the existing caller-owned
+`PowerShellRemoting` transport; it adds no transport or deployment workflow. Reuse
+the same trusted HTTPS, authentication, and transport-lifecycle rules described
+above for IIS:
+
+```python
+from conductor.transports import PowerShellRemoting
+from conductor.windows import WindowsClient
+
+with PowerShellRemoting(
+    endpoint="https://win02.company.local:5986/wsman",
+    auth="kerberos",
+) as transport:
+    windows = WindowsClient(transport=transport, timeout=60)
+    state = windows.services.get_state("ConductorDisposable")
+    stopped = windows.services.stop("ConductorDisposable")
+```
+
+Use the exact installed service name, not its display name. The remote helper
+constructs `ServiceController` with its default constructor, then sets
+`ServiceName` explicitly, avoiding display-name fallback; the name is also passed
+as a separately bound scalar parameter. Names are limited to at most 256 UTF-16
+code units; unpaired surrogates are rejected. The target needs Windows
+PowerShell 5.1 or later and an authorized, full-language remoting endpoint that
+supports `Add-Type`, .NET, and native SCM calls. Constrained Language Mode and JEA
+are not made compatible merely by selecting their endpoint. Conductor and Python
+remain on the caller.
+
+| Method | Contract |
+| --- | --- |
+| `services.get_state(name, timeout=None)` | Read a `ServiceState`; no mutation. |
+| `services.start(name, timeout=None)` / `services.stop(name, timeout=None)` | One remote operation returning `ServiceChangeResult(name, initial_state, final_state, changed)`. |
+
+The native states are `Stopped`, `StartPending`, `StopPending`, `Running`,
+`ContinuePending`, `PausePending`, and `Paused`, plus `Unknown`. Starting is a no-op
+when already `Running`; it dispatches only from `Stopped` and rejects paused,
+pending, or unknown states (there is no resume operation). Stopping is a no-op
+when already `Stopped`; it dispatches from `Running` or `Paused` and rejects
+pending or unknown states. A start can cause the Service Control Manager to start
+ordinary dependencies, but Conductor never enables a disabled service. Stop never
+forces or cascades a stop to active dependent services.
+
+Start uses `ServiceController.Start()`; stop uses a constant C# helper loaded with
+`Add-Type` to call `OpenSCManager`, `OpenService`, and
+`ControlService(SERVICE_CONTROL_STOP)`. The helper closes its SCM/service handles.
+An active dependent service is left running and the native SCM rejection
+(`ERROR_DEPENDENT_SERVICES_RUNNING`, 1051) is reported as a dependency error.
+
+These calls do not poll for stability, sequence deployment work, restore a prior
+state, or promise service/application health. `final_state` is the final observation
+and may still be transitional. A reported success is not a readiness guarantee.
+The existing remoting transport uses cooperative timeouts and does not replay
+requests; a timeout or connection loss cannot prove that an issued command did not
+complete. The native stop call may block while the service handles the control;
+the cooperative deadline is not hard cancellation. No library polling does not
+mean the native call cannot wait. Inspect target state before deciding whether to
+try again.
+
+Missing services, invalid states, active dependents, disabled services, native
+command failures, and protocol failures map to `ServiceNotFoundError`,
+`ServiceStateError`, `ServiceDependencyError`, `ServiceDisabledError`,
+`ServiceCommandError`, and `ServiceProtocolError` from `conductor.windows`.
+Authentication and access denial use the shared `AuthenticationError` and
+`PermissionDeniedError` from `conductor.common.errors`. Raw remote error text is
+not exposed in these errors.
+No live Windows service target has been validated for this release; see
+[VERIFICATION.md](VERIFICATION.md) for the offline claim owner and live boundary.
+
 ## Consumers stay thin
 
 Consumers select targets and credentials, authorize mutations, decide deployment
@@ -334,7 +497,7 @@ than block their event loop. No async API is maintained in this initial version.
 With [uv](https://docs.astral.sh/uv/) installed:
 
 ```text
-uv sync --extra iis --extra azure-devops --extra argocd --extra sonarqube
+uv sync --extra iis --extra windows --extra azure-devops --extra argocd --extra sonarqube --extra linux
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy
@@ -343,7 +506,8 @@ uv run python -m build --no-isolation
 ```
 
 Unit tests use fake transports and fake SDK objects. Packaging tests build a
-wheel and sdist and install the wheel **without dependencies** in a clean venv.
+wheel and sdist and install the wheel **without dependencies** in a clean venv;
+the Windows API's public import and fake operation are checked without pypsrp.
 Unit tests block network connections; HTTP adapter tests use real HTTPX with
 `MockTransport`. No CLI, pipeline service, Windows host, or network target is required.
 
