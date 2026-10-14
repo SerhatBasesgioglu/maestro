@@ -35,9 +35,24 @@
   dependency as `iis`; no service sequencing, readiness/stability polling, or
   restoration is added. The target requires a compatible full-language Windows
   PowerShell 5.1+ endpoint.
+- Single-file artifact staging/retrieval on an explicitly accessible filesystem,
+  with bounded streaming, SHA-256 verification before local promotion, and
+  fail-closed no-overwrite behavior by default. SMB/NFS are used only through
+  existing caller-mounted/access paths; no mount/auth discovery or directory
+  mirroring is added.
+- Optional `nexus` extra for raw hosted Nexus PUT/GET with explicit HTTPS, Basic
+  authentication, a lazy injectable streaming transport, trusted-digest retrieval,
+  and no write replays. Repository redeploy policy remains authoritative; artifact
+  storage does not copy to deployment targets or orchestrate releases.
+- Optional `openbao` HTTPX extra for explicit, read-only OpenBao KV v2 point reads.
+  Caller-supplied Vault tokens/namespaces, lazy default transport, injectable borrowed
+  HTTP transport, and secret-safe typed results; no login, token lifecycle,
+  environment discovery, writes, or deployment workflow.
 
 Live Windows/domain authentication, IIS compatibility, and Windows service
 management must be verified on an approved non-production target before deployment.
+Nexus server/authentication/repository policy and mounted SMB/NFS behavior also
+require separately approved target validation.
 HTTP server versions, authentication, permissions, and mutation semantics also
 require live validation. Kubernetes, workflows, CLI, API/MCP servers, and consumer
 pipelines remain unimplemented.

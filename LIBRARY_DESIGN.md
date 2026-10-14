@@ -62,7 +62,7 @@ named `Client` is not a reason to introduce inheritance.
 ```text
 src/conductor/
   __init__.py                 # No SDK imports or connections
-   common/                     # Error/validation/JSON helpers and lazy injectable HTTP
+  common/                     # Error/validation/JSON helpers and lazy injectable HTTP
   transports/
     models.py                 # Library-owned scalar/error snapshots
     protocols.py              # Injectable synchronous execution seam
@@ -74,36 +74,46 @@ src/conductor/
     application_pools.py      # State/start/stop contracts and polling
     models.py                 # Stable pool states and change results
     errors.py                 # IIS-specific exceptions
-     _scripts.py               # Constant source; input is separately bound
-   azure_devops/
-     client.py, config.py       # Explicit organization/project and PAT/bearer auth
-     repositories.py           # Reads, create branch/commit/PR, CAS ref movement
-     pipelines.py              # Explicit branch/commit run submission and reads
-     models.py, errors.py       # Typed Git/run contracts and business failures
-   argocd/
-     client.py, config.py       # Explicit server, AppProject, bearer token, namespace
-     applications.py           # Read, request sync, deadline-checked health waits
-     models.py, errors.py       # Application observations and health-timeout errors
-   sonarqube/
-     client.py, config.py       # Explicit server and caller-supplied bearer token
-     projects.py                # Project reads via the component API
-     quality_gates.py           # Project/analysis gate reads with explicit selectors
-      models.py, errors.py       # Typed project/gate models and resource errors
-   linux/
-     client.py                 # Borrowed SSH transport; no deployment service layer
-     services.py               # Independent systemd state/start/stop APIs
-     files.py                  # Independent legacy single-file rsync upload
-     compose.py                # Explicit remote Compose down/up and YAML image edits
-      _yaml.py, _scripts.py     # Lazy round-trip YAML and atomic remote-file helper
-      models.py, errors.py       # Typed command/file contracts and sanitized failures
-    windows/
-      client.py                 # Borrowed PowerShell remoting transport
-      services.py               # Independent Windows SCM state/start/stop APIs
-      _scripts.py               # Constant remote PowerShell source
-      models.py, errors.py      # Typed native states/results and sanitized failures
+    _scripts.py               # Constant source; input is separately bound
+  azure_devops/
+    client.py, config.py       # Explicit organization/project and PAT/bearer auth
+    repositories.py           # Reads, create branch/commit/PR, CAS ref movement
+    pipelines.py              # Explicit branch/commit run submission and reads
+    models.py, errors.py       # Typed Git/run contracts and business failures
+  argocd/
+    client.py, config.py       # Explicit server, AppProject, bearer token, namespace
+    applications.py           # Read, request sync, deadline-checked health waits
+    models.py, errors.py       # Application observations and health-timeout errors
+  sonarqube/
+    client.py, config.py       # Explicit server and caller-supplied bearer token
+    projects.py                # Project reads via the component API
+    quality_gates.py           # Project/analysis gate reads with explicit selectors
+    models.py, errors.py       # Typed project/gate models and resource errors
+  linux/
+    client.py                 # Borrowed SSH transport; no deployment service layer
+    services.py               # Independent systemd state/start/stop APIs
+    files.py                  # Independent legacy single-file rsync upload
+    compose.py                # Explicit remote Compose down/up and YAML image edits
+    _yaml.py, _scripts.py     # Lazy round-trip YAML and atomic remote-file helper
+    models.py, errors.py       # Typed command/file contracts and sanitized failures
+  windows/
+    client.py                 # Borrowed PowerShell remoting transport
+    services.py               # Independent Windows SCM state/start/stop APIs
+    _scripts.py               # Constant remote PowerShell source
+    models.py, errors.py      # Typed native states/results and sanitized failures
+  artifacts/
+    filesystem.py             # Single-file staging on existing local/mounted paths
+    nexus.py                  # Explicit Nexus raw-hosted streaming API
+    transport.py, _httpx.py   # Injectable raw HTTP seam and lazy optional adapter
+    _files.py, _validation.py # Bounded staging, hash verification, portable keys
+    models.py, errors.py      # Artifact metadata and sanitized local errors
+  openbao/
+    client.py, config.py      # Explicit HTTPS target and caller-supplied token
+    kv_v2.py                  # Read-only KV v2 point reads
+    models.py                 # Secret data and KV v2 metadata
 tests/
   unit/
-   integration/                # Opt-in IIS mutations and read-only HTTP smoke tests
+  integration/                  # Opt-in IIS mutations and read-only HTTP smoke tests
   packaging/                  # Build/install without optional dependencies
 ```
 
@@ -145,6 +155,11 @@ linux.compose.set_image(...)
 windows.services.get_state(...)
 windows.services.start(...)
 windows.services.stop(...)
+filesystem.publish(source, key, expected_sha256=None, overwrite=False)
+filesystem.retrieve(key, destination, expected_sha256, overwrite=False)
+nexus.publish(source, key, expected_sha256=None, timeout=None)
+nexus.retrieve(key, destination, expected_sha256, overwrite=False, timeout=None)
+openbao.kv_v2.read(mount, path, version=None, timeout=None)
 
 # Proposed, not implemented:
 k8s.workloads.get_deployment(...)
@@ -165,6 +180,9 @@ permissions, server versions, and endpoint restrictions still require live check
 
 - Consumers supply explicit targets and credentials. Core methods do not parse
   arguments or discover pipeline variables. Platform credentials are not universal.
+- OpenBao receives only a caller-supplied Vault token. Login, token TTL/rotation,
+  environment selection, and any secret-to-configuration mutation remain consumer
+  responsibilities.
 - Keep credential values out of logs, representations, and operational errors.
   Conductor drops raw remote error text and invocation details. Third-party
   wire logging and application traceback-local collection remain caller risks.
@@ -204,6 +222,14 @@ SonarQube supports read-only project and gate observations. Gate selectors canno
 mix project and analysis IDs or branch and PR. Completed analysis IDs, not Compute
 Engine task IDs, avoid relying on the latest concurrently changing project gate.
 Scanner execution, CE waiting, and release approval are outside this slice.
+
+OpenBao supports explicit, read-only KV v2 point reads. It sends the caller token in
+`X-Vault-Token`, optionally sends an explicit namespace, and returns validated secret
+data plus version metadata with sensitive values hidden from representations. An
+omitted version means the server's latest version. A 404 means the requested value is
+absent or unreadable; it does not distinguish absence, deletion, destruction, or
+other unreadability. No login, token renewal/rotation, write, delete, list, environment
+discovery, or deployment/workflow operation is provided.
 
 All integrations retain HTTP error categories and reject malformed schemas. HTTP
 timeouts bound I/O phases, not guaranteed elapsed time. The Argo health wait checks
@@ -261,6 +287,51 @@ library polling do not imply that the native call cannot wait. A Windows PowerSh
 trusted HTTPS/authentication, and suitable service management rights are
 prerequisites. Constrained Language Mode/JEA is not compatible by endpoint selection
 alone.
+
+## Independent artifact storage APIs
+
+Artifact operations store and retrieve one opaque file at a time; they do not deploy
+to a target, unpack archives, mirror directories, or orchestrate a build/release.
+Callers record the returned `ArtifactInfo(key, size, sha256)` in trusted release
+metadata, then retrieve on the deployment agent using that expected digest. Copying
+the retrieved local file to a Windows/Linux target is a separate target-specific
+operation.
+
+`FilesystemArtifacts(root)` works only with an already accessible caller path,
+including an existing SMB UNC/mapped path or mounted NFS path. It does not mount a
+share or discover authentication. The root, key parents, and local destination/
+staging parents must exist before each call; their creation is caller-owned. Keys are portable ASCII
+relative paths; traversal, reserved Windows names, and symlink or junction paths
+are rejected. Reads/writes are bounded to 1 MiB chunks; digest checks complete
+before promotion. Mounted operations may block; there is no hard operation timeout.
+The default commit is no-clobber and fails closed when
+the filesystem cannot provide the needed primitive. `overwrite=True` explicitly
+uses `os.replace`. Existing file mode/ACL is not preserved on replacement; process
+permissions, inherited ACLs, and umask remain caller policy. Local temporary-file
+tests do not establish SMB/NFS atomicity, durability, or hostile-directory-race
+safety.
+
+`NexusRawArtifacts` uses an explicit `NexusRawConfig` and raw hosted repository path
+(`/repository/{repository}/{key}`), with direct PUT/GET and preserved base-URL path
+prefixes. The optional `nexus` extra supplies lazy HTTPX 0.28.x; the public narrow
+`ArtifactHttpTransport`/`ArtifactHttpResponse` seam is injectable, and the default
+`HttpxArtifactTransport` is owned while injected transports are borrowed. Credentials
+are explicitly supplied as a username/password pair sent with HTTP Basic over
+verified HTTPS; no bearer token or environment discovery is used. Publish snapshots
+and hashes to private disk before one non-replayed PUT; HTTP streams use bounded 1 MiB
+chunks, while upload staging requires artifact-sized scratch. Its returned digest is
+local metadata, not a server checksum. A failed PUT may have completed. Nexus redeploy
+policy remains authoritative: immutable keys require a repository configured to
+Disable redeploy, and no client publish-side overwrite or HEAD/CAS guarantee exists.
+Retrieval accepts only an exact 200 raw identity response, requires a trusted expected
+digest, and verifies a local temporary file before promotion. HTTP phase timeouts are
+not hard elapsed-time or cancellation guarantees.
+
+`ArtifactIntegrityError` and `ArtifactFileError` distinguish digest and local-file
+failures. Nexus additionally uses shared authentication, permission, conflict,
+transport/timeout, and HTTP status errors; payloads and credentials do not appear in
+errors or representations. Live mounted-share and Nexus server behavior remains a
+separate target-owner validation boundary.
 
 ## Initial use case: remote IIS
 
@@ -327,12 +398,12 @@ check, rollback, or concurrency-control mechanism.
 
 One versioned distribution with optional dependencies; the base package has none.
 Implemented extras: `conductor[iis]`, `conductor[windows]` (the same optional
-pypsrp dependency as IIS), non-Windows Kerberos support via
-`conductor[iis,kerberos]`, and the independent `azure-devops`, `argocd`, and
-`sonarqube` extras using HTTPX 0.28.x. The `linux` extra adds ruamel.yaml only for
-Compose image edits; SSH/rsync use installed POSIX system tools. Imports do not
-connect to targets, require local IIS/Windows APIs, or eagerly import optional
-dependencies.
+pypsrp dependency as IIS), `conductor[nexus]` and `conductor[openbao]` (HTTPX
+0.28.x), non-Windows Kerberos support via `conductor[iis,kerberos]`, and the
+independent `azure-devops`, `argocd`, and `sonarqube` extras using HTTPX 0.28.x. The
+`linux` extra adds ruamel.yaml only for Compose image edits; SSH/rsync use installed
+POSIX system tools. Imports do not connect to targets, require local IIS/Windows
+APIs, or eagerly import optional dependencies.
 
 Use an approved private feed, pin consumer versions, and record public changes in
 release notes. Follow Semantic Versioning; before 1.0, minor versions may change
@@ -348,7 +419,8 @@ write replay avoidance, ownership, and sensitive-data handling. No live target i
 needed to test public library APIs.
 
 Packaging tests build a wheel/sdist and install without optional dependencies in
-a clean environment, including Windows public imports and a fake service read.
+a clean environment, including Windows public imports and a fake service read,
+plus artifact filesystem/Nexus and OpenBao imports with no-SDK fake operations.
 Adapter tests use the installed optional SDK but intercept remote calls. Live tests
 are opt-in, require an explicit HTTPS endpoint and confirmed disposable pool, and
 attempt restoration of its initial stable state. Separate explicitly approved HTTP
@@ -358,8 +430,9 @@ without any integration SDK. The Windows SCM behavior and real remoting/authenti
 still require a separately approved target; no live Windows service target is claimed.
 
 Offline tests cannot establish real Kerberos, certificate trust, permissions,
-IIS/Windows service/API server compatibility, JEA/RBAC restrictions,
-mutation/concurrency behavior, or reliable remote cancellation.
+IIS/Windows service/API server compatibility, JEA/RBAC restrictions, mounted
+SMB/NFS semantics, Nexus repository policy, OpenBao authentication/TLS/namespace/RBAC
+semantics, mutation/concurrency behavior, or reliable remote cancellation.
 See VERIFICATION.md for the claim owners and evidence boundaries.
 
 ## Sequence and remaining decisions
@@ -368,14 +441,15 @@ See VERIFICATION.md for the claim owners and evidence boundaries.
 2. **Chosen topology:** Windows domain agent, Kerberos, trusted HTTPS. Verify the
    actual agent identity, network, DNS/SPNs, trust, endpoint, and permissions.
 3. **Implemented offline:** minimal remoting and IIS pool get/start/stop APIs;
-   independent Windows service state/start/stop APIs.
+    independent Windows service state/start/stop APIs.
 4. Verify a disposable non-production pool, then add consumer-owned pipeline scripts.
 5. **Implemented offline:** Azure DevOps Git/CAS ref updates and pipeline runs,
    Argo CD application reads/sync/health waits, and SonarQube projects/gates.
 6. Validate approved HTTP targets and disposable mutations; add Kubernetes only
-    when a concrete consumer requirement is authorized.
-   **Implemented offline:** independent Linux systemd, rsync, and Compose APIs;
-   validate approved SSH targets and disposable mutations separately.
+   when a concrete consumer requirement is authorized. **Implemented offline:**
+    independent Linux systemd, rsync, and Compose APIs, plus independent filesystem
+    and Nexus artifact storage; OpenBao KV v2 read-only API; validate approved SSH,
+    mounted-share, Nexus, and OpenBao targets separately.
 7. Add workflows after repeated requirements establish a useful contract.
 8. Add independent CLI/API/MCP wrappers only if needed.
 

@@ -317,6 +317,12 @@ kerberos = [
 linux = [
     { name = "ruamel-yaml" },
 ]
+nexus = [
+    { name = "httpx" },
+]
+openbao = [
+    { name = "httpx" },
+]
 sonarqube = [
     { name = "httpx" },
 ]
@@ -341,13 +347,15 @@ dev = [
 requires-dist = [
     { name = "httpx", marker = "extra == 'argocd'", specifier = ">=0.28,<0.29" },
     { name = "httpx", marker = "extra == 'azure-devops'", specifier = ">=0.28,<0.29" },
+    { name = "httpx", marker = "extra == 'nexus'", specifier = ">=0.28,<0.29" },
+    { name = "httpx", marker = "extra == 'openbao'", specifier = ">=0.28,<0.29" },
     { name = "httpx", marker = "extra == 'sonarqube'", specifier = ">=0.28,<0.29" },
     { name = "pypsrp", marker = "extra == 'iis'", specifier = ">=0.9.1,<0.10" },
     { name = "pypsrp", marker = "extra == 'windows'", specifier = ">=0.9.1,<0.10" },
     { name = "pypsrp", extras = ["kerberos"], marker = "sys_platform != 'win32' and extra == 'kerberos'", specifier = ">=0.9.1,<0.10" },
     { name = "ruamel-yaml", marker = "extra == 'linux'", specifier = ">=0.18,<0.19" },
 ]
-provides-extras = ["azure-devops", "argocd", "sonarqube", "iis", "windows", "kerberos", "linux"]
+provides-extras = ["azure-devops", "argocd", "sonarqube", "nexus", "openbao", "iis", "windows", "kerberos", "linux"]
 
 [package.metadata.requires-dev]
 dev = [

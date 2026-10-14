@@ -5,8 +5,9 @@ infrastructure, and delivery operations. The library is the product: no CLI,
 pipeline runtime, API service, or MCP server is required to use or test it.
 
 **Implemented integrations:** remote IIS application pools and Windows services,
-Azure DevOps Git and pipeline runs, Argo CD applications, SonarQube projects/quality
-gates, and Linux systemd/rsync/Docker Compose APIs over SSH.
+filesystem/Nexus artifact storage, Azure DevOps Git and pipeline runs, Argo CD
+applications, SonarQube projects/quality gates, read-only OpenBao KV v2 access, and
+Linux systemd/rsync/Docker Compose APIs over SSH.
 Kubernetes and cross-platform workflows remain planned; there are no empty
 integration placeholders or mandatory consumer wrappers.
 
@@ -17,6 +18,8 @@ Publish to your approved private Python feed, then pin the version in consumers:
 ```powershell
 python -m pip install "conductor[iis]==0.1.0"
 python -m pip install "conductor[windows]==0.1.0"
+python -m pip install "conductor[nexus]==0.1.0"
+python -m pip install "conductor[openbao]==0.1.0"
 python -m pip install "conductor[azure-devops,argocd,sonarqube]==0.1.0"
 python -m pip install "conductor[linux]==0.1.0"
 ```
@@ -28,9 +31,9 @@ Kerberos extra. For a separately configured Linux/macOS Kerberos caller, install
 `conductor[iis,kerberos]`; native GSSAPI/Kerberos prerequisites are also needed.
 Non-Windows live authentication has not been validated for this project.
 
-The independent `azure-devops`, `argocd`, and `sonarqube` extras use HTTPX 0.28.x.
-Install only the integrations you need. Importing or constructing any client
-does not load its optional HTTP/remoting dependency or open a connection.
+The independent `azure-devops`, `argocd`, `sonarqube`, `nexus`, and `openbao` extras
+use HTTPX 0.28.x. Install only the integrations you need. Importing or constructing
+any client does not load its optional HTTP/remoting dependency or open a connection.
 
 Linux SSH/rsync commands use installed system tools rather than a Python SSH SDK.
 The optional `linux` extra supplies ruamel.yaml 0.18.x **only for Compose image-file
@@ -174,6 +177,52 @@ Browse for reads; the gate endpoint also permits its documented administrative o
 analysis permissions). SonarQube Web API V2 migration and server editions/versions
 must be verified against your target.
 
+### OpenBao KV v2 read-only
+
+`conductor[openbao]` supplies the default HTTPX 0.28.x adapter. The token and any
+namespace/CA settings come explicitly from the consumer; Conductor does not read
+environment variables, log in, renew or rotate tokens, or change consumer
+configuration:
+
+```python
+from conductor.openbao import OpenBaoClient, OpenBaoConfig
+
+bao_token = ...  # Supplied by the consumer from an approved secret source.
+config = OpenBaoConfig(
+    server_url="https://openbao.example.net/platform",
+    token=bao_token,
+    namespace="team/app",  # Optional X-Vault-Namespace.
+    ca_bundle="/etc/conductor/openbao-ca.pem",  # Optional trusted PEM CA.
+)
+
+with OpenBaoClient(config) as bao:
+    secret = bao.kv_v2.read("secret", "apps/widget", version=2)
+    widget_password = secret.data["password"]
+    # Pass the value to its intended consumer; do not print or log it.
+```
+
+| Read | Contract |
+| --- | --- |
+| `kv_v2.read(mount, path, version=None, timeout=None)` | One KV v2 point read returning `KvV2Secret(data, metadata)`. An omitted version asks OpenBao for its latest version; a supplied version must be positive. |
+
+The client issues `GET {server-prefix}/v1/{mount}/data/{path}`. Nested mount and
+secret paths retain their slash-separated components while each component is URL
+encoded. The response envelope is validated before returning `secret.data` and
+`secret.metadata` (`version`, `created_time`, `deletion_time`, `destroyed`, and
+optional `custom_metadata`). Secret data and custom metadata are hidden from model
+representations. `X-Vault-Token` is the explicit caller token; an explicitly
+configured namespace adds `X-Vault-Namespace`.
+
+The API is read-only: there is no login, token renewal/rotation, write, delete, list,
+environment loading, discovery, or deployment workflow. HTTP 403 means access is
+denied. A 404 reports an absent or unreadable version; it does not promise to
+distinguish absent, deleted, destroyed, or otherwise unreadable data. Caller-owned
+token TTL/rotation policy remains outside Conductor. HTTP phase timeouts do not
+promise a hard elapsed-time deadline or cancellation. No live OpenBao authentication,
+TLS, namespace, permission, or server compatibility is claimed.
+See the [OpenBao KV v2 API](https://openbao.org/docs/api/secret/kv/kv-v2/) for the
+server endpoint contract.
+
 ### Shared HTTP contracts
 
 - Default request timeout: 30s; per-call `timeout` can tighten but not extend it.
@@ -194,7 +243,8 @@ must be verified against your target.
   its implementer owns TLS, timeouts, retries, and sanitized errors. The
   `HttpResponse` model supports dependency-free fake transports.
 - Instances are not thread-safe. Closed clients cannot be reused. Tokens, commit
-  content, and pipeline variable values are excluded from relevant representations;
+  content, pipeline variable values, and OpenBao secret/custom-metadata values are
+  excluded from relevant representations;
   external error bodies/messages are not chained into library errors. Avoid wire
   logging and traceback-local dumps in credential-bearing consumers.
 
@@ -476,6 +526,148 @@ not exposed in these errors.
 No live Windows service target has been validated for this release; see
 [VERIFICATION.md](VERIFICATION.md) for the offline claim owner and live boundary.
 
+## Artifact staging and delivery
+
+Artifact storage is independent of deployment. Build an archive, publish that one
+file to an already accessible filesystem or Nexus raw hosted repository, and record
+the returned `ArtifactInfo.sha256` in trusted release metadata. A deployment agent
+retrieves the file with that expected digest, then uses a separate target-specific
+copy/deployment operation. Conductor does not copy directly from storage to a
+Windows/Linux target, unpack archives, mirror directories, or orchestrate a release.
+
+| Method | Contract |
+| --- | --- |
+| `FilesystemArtifacts(root).publish(source, key, expected_sha256=None, overwrite=False)` | Stage one file under an existing root and return `ArtifactInfo(key, size, sha256)`. |
+| `FilesystemArtifacts(root).retrieve(key, destination, expected_sha256, overwrite=False)` | Verify one stored file against the required digest before local promotion. |
+| `NexusRawArtifacts(config).publish(source, key, expected_sha256=None, timeout=None)` | Snapshot/hash one file and issue one raw-repository PUT; returns local digest metadata. |
+| `NexusRawArtifacts(config).retrieve(key, destination, expected_sha256, overwrite=False, timeout=None)` | Stream one raw response, verify the required digest, then promote locally. |
+
+### Existing filesystem share
+
+`FilesystemArtifacts` uses a path the caller can already access: for example an
+existing SMB UNC/mapped path on Windows or an already-mounted NFS path. It does not
+mount shares, discover them, or discover credentials. Root, key-parent, and
+destination-parent directories must exist; the caller creates them:
+
+```python
+from pathlib import Path
+from conductor.artifacts import FilesystemArtifacts
+
+root = Path("/mnt/approved-artifacts")  # Existing accessible mount/root.
+(root / "releases/1.2.0").mkdir(parents=True, exist_ok=True)
+key = "releases/1.2.0/widget.zip"
+
+# Build/store agent:
+stored = FilesystemArtifacts(root).publish("dist/widget.zip", key)
+release_sha256 = stored.sha256  # Persist in trusted release metadata.
+
+# Separately, on an agent that can access the same share:
+root = Path("/mnt/approved-artifacts")  # Its existing path to that share.
+key = trusted_release_record.key
+release_sha256 = trusted_release_record.sha256  # Supplied by the consumer.
+destination = Path("incoming/widget.zip")
+destination.parent.mkdir(parents=True, exist_ok=True)
+FilesystemArtifacts(root).retrieve(
+    key,
+    destination,
+    expected_sha256=release_sha256,
+)
+# Copy/deploy destination to the target using a separate target-specific operation.
+```
+
+Filesystem reads and writes use bounded 1 MiB chunks. Publish optionally checks a
+caller-known digest; retrieval requires the digest from trusted release metadata. Data is staged
+to a temporary file alongside its destination and the digest is verified before
+promotion. The default no-overwrite commit uses a native no-clobber operation and
+fails closed if the share cannot support it; `overwrite=True` explicitly uses
+`os.replace`. Errors before promotion leave the prior destination intact. Replacement
+uses native permissions, ACL inheritance, and umask; the old file's mode/ACL is not
+preserved. There is no universal SMB/NFS server-side atomicity or crash-durability
+guarantee, and mounted filesystem calls may block without a hard operation timeout.
+Use trusted caller-controlled roots/parents: this is not a sandbox against hostile
+directory races. Only one file (including an archive as opaque bytes) is handled per
+call. Keys are portable ASCII relative paths; traversal, reserved Windows names, and
+symlink/junction paths are rejected.
+
+### Nexus raw hosted repository
+
+Install the optional `nexus` extra for the default HTTPX 0.28.x transport. The
+configuration timeout defaults to 30 seconds; per-call timeouts may be supplied.
+Supply the repository endpoint and credentials explicitly from the consumer's
+approved secret source:
+
+```python
+from pathlib import Path
+from conductor.artifacts import NexusRawArtifacts, NexusRawConfig
+
+config = NexusRawConfig(
+    base_url="https://nexus.example.net/nexus",
+    repository="raw-release",
+    username=nexus_username,
+    password=nexus_password,
+    ca_bundle="/etc/conductor/nexus-ca.pem",  # Omit when system trust is sufficient.
+)
+key = "releases/1.2.0/widget.zip"
+
+# Build/store agent:
+with NexusRawArtifacts(config) as raw:
+    stored = raw.publish("dist/widget.zip", key)
+release_sha256 = stored.sha256  # Persist with trusted release metadata.
+
+# Separately, on the deployment agent, construct config from its explicit
+# endpoint/CA settings and approved credentials, then load trusted release metadata:
+config = NexusRawConfig(
+    base_url="https://nexus.example.net/nexus",
+    repository="raw-release",
+    username=nexus_username,
+    password=nexus_password,
+    ca_bundle="/etc/conductor/nexus-ca.pem",
+)
+key = trusted_release_record.key
+release_sha256 = trusted_release_record.sha256  # Supplied by the consumer.
+destination = Path("incoming/widget.zip")
+destination.parent.mkdir(parents=True, exist_ok=True)
+with NexusRawArtifacts(config) as raw:
+    raw.retrieve(key, destination, expected_sha256=release_sha256)
+# Transfer/deploy destination separately; raw storage does not target the host.
+```
+
+This is a direct raw-hosted `PUT`/`GET` at
+`/repository/{repository}/{key}`; any context prefix in `base_url` is retained.
+Authentication is HTTP Basic using the configured username/password pair, not a
+bearer token. Nexus user-token `tokenname`/`passcode` credentials are used as the
+Basic username/password pair, not as a bearer token. HTTPS certificate verification
+is mandatory; `ca_bundle` supplies a trusted PEM CA file. There is no implicit
+environment credential discovery. The `NexusRawArtifacts` default transport is lazy
+and owned (use `with` or `close()`); an injected `ArtifactHttpTransport` is borrowed.
+The public transport seam is
+`ArtifactHttpTransport`/`ArtifactHttpResponse`, with `HttpxArtifactTransport` as the
+optional default implementation.
+
+Nexus upload/download streams use bounded 1 MiB chunks. Publish snapshots and hashes
+the local file into private disk scratch before one non-replayed `PUT`; this needs
+scratch space for an artifact-sized snapshot. The returned digest is local metadata,
+not a Nexus checksum receipt. An uncertain PUT may have completed, so inspect
+repository state before retrying. Nexus repository
+policy remains authoritative: configure a raw hosted repository to **Disable
+redeploy** when immutable release keys are required. `Allow redeploy` permits a
+later PUT to replace the existing key; there is no publish-side overwrite flag or
+HEAD-based compare-and-swap guarantee. The `overwrite` option applies only to the
+local retrieve destination. Retrieval accepts only an exact HTTP 200 raw
+identity stream (no redirect, partial response, or compression), hashes while
+streaming to a local temporary file, and promotes only after the required digest
+matches. HTTP request-phase timeouts do not guarantee total elapsed time or cancel
+an in-flight server operation.
+
+Filesystem failures include `ArtifactFileError`, `ArtifactIntegrityError`, and the
+shared `PermissionDeniedError` for native access denial. Nexus also maps shared
+`AuthenticationError`, `PermissionDeniedError`, `ConflictError`, `TransportError`/
+`TransportTimeoutError`, and `HttpResponseError`/`RateLimitError` categories from
+`conductor.common.errors`.
+Error text and representations do not expose artifact payloads or credentials.
+No live SMB/NFS share or Nexus server has been validated; see
+[VERIFICATION.md](VERIFICATION.md) for evidence owners and boundaries.
+
 ## Consumers stay thin
 
 Consumers select targets and credentials, authorize mutations, decide deployment
@@ -497,7 +689,8 @@ than block their event loop. No async API is maintained in this initial version.
 With [uv](https://docs.astral.sh/uv/) installed:
 
 ```text
-uv sync --extra iis --extra windows --extra azure-devops --extra argocd --extra sonarqube --extra linux
+uv sync --extra iis --extra windows --extra nexus --extra openbao \
+  --extra azure-devops --extra argocd --extra sonarqube --extra linux
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy
@@ -507,9 +700,11 @@ uv run python -m build --no-isolation
 
 Unit tests use fake transports and fake SDK objects. Packaging tests build a
 wheel and sdist and install the wheel **without dependencies** in a clean venv;
-the Windows API's public import and fake operation are checked without pypsrp.
+Windows, artifact, and OpenBao public imports/fake operations are checked without
+pypsrp or HTTPX.
 Unit tests block network connections; HTTP adapter tests use real HTTPX with
-`MockTransport`. No CLI, pipeline service, Windows host, or network target is required.
+`MockTransport`. No CLI, pipeline service, Windows host, mounted SMB/NFS share, or
+network target is required.
 
 Live IIS tests are opt-in, use Kerberos, and require an explicitly confirmed disposable
 pool on a non-production target:

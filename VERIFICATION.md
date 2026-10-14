@@ -1,14 +1,49 @@
 # Verification evidence path
 
-The first release claims independent library-only IIS, Windows service, Azure DevOps,
-Argo CD, SonarQube, and Linux APIs, explicit remote targets/credentials, typed
-results, safe parameter binding, concurrency-aware writes, meaningful failures,
-and optional dependencies.
+The first release claims independent library-only IIS, Windows service, artifact
+filesystem/Nexus, OpenBao KV v2, Azure DevOps, Argo CD, SonarQube, and Linux APIs, explicit remote
+targets/credentials, typed results, safe parameter binding, concurrency-aware
+writes, meaningful failures, and optional dependencies.
 The highest-risk boundary is an uncertain remote mutation: success or failure of
 the local request does not alone prove the final remote state, completed pipeline,
 or successful deployment. Kubernetes/workflows remain outside this release.
 
-## Recorded Windows/Linux validation — 2026-10-08
+## Combined offline validation — 2026-10-14
+
+- macOS Darwin 25.5 arm64, Python 3.11.15: **884 passed, 7 skipped**, **96%**
+  Python statement/branch coverage. Skips: three gated live HTTP tests, one gated
+  live IIS test, two Windows-only filesystem rename cases, and one Linux-only xattr
+  case. Packaging tests ran; all live gates remained off.
+- Ruff lint and format checks passed (94 files); strict mypy passed (70 source
+  files); wheel/sdist build with `--no-isolation` and final diff whitespace check
+  passed. The prior locked-extras cache-only setup and lock-consistency result were
+  reused; no dependency or lock changes were made for this follow-up.
+- The focused OpenBao suite passed **92 tests**. A regression with a far-future
+  nonempty `deletion_time` and valid secret data (both nonempty and empty maps)
+  failed in both cases before the correction and passed afterward. Destroyed
+  versions remain unreadable even when data is returned; null data with deletion
+  metadata remains covered as unreadable.
+- No live target was contacted. This run does not establish native Windows behavior,
+  SMB/NFS semantics, Nexus or OpenBao server behavior, credentials, TLS, or remote
+  permissions; the skipped platform/live checks remain separate target-owner work.
+
+## Artifact validation baseline — 2026-10-08 (before OpenBao)
+
+- macOS, Python 3.11.15: **792 passed, 7 skipped**, **95%** Python statement/branch
+  coverage after the artifact cleanup corrections. Skips: four gated live IIS/HTTP
+  tests, two Windows-only artifact rename cases, and one Linux-only xattr case.
+- Ruff lint/format (88 files), strict mypy (65 source files), lock consistency,
+  and diff checks passed. Wheel/sdist and clean no-dependency filesystem/fake-Nexus
+  consumer checks passed in the full suite.
+- Targeted safety review approved the corrected upload-reader closure before
+  snapshot removal, staging-close failure preservation, and platform-specific
+  no-clobber tests. Regressions cover primary exception identity and preservation
+  of existing destinations before commit.
+- This is local filesystem and intercepted/fake HTTP evidence, not native Windows,
+  SMB/NFS, live Nexus authentication, TLS, or repository-policy validation. No live
+  target was contacted. OpenBao was not included in this baseline.
+
+## Prior Windows/Linux validation at `f78ffbf` — 2026-10-08
 
 - macOS, Python 3.11.15: **664 passed, 5 skipped**, **98%** Python statement/branch
   coverage after the Windows service safety corrections. Four skips are the
@@ -24,6 +59,9 @@ or successful deployment. Kubernetes/workflows remain outside this release.
 - No live target was contacted. Windows service identity/rights, exact-name lookup,
   dependency rejection, native stopping, and restoration require separately
   approved non-production Windows checks before deployment.
+- This recorded 664-passed/5-skipped, 98%-coverage run predates the artifact APIs.
+  It is prior Linux/Windows evidence, not validation of filesystem or Nexus artifact
+  operations; the recorded checks did not exercise SMB/NFS or a Nexus server.
 
 ## Earlier Linux/API validation — 2026-10-08 (before Windows services)
 
@@ -96,10 +134,14 @@ These results establish the offline contracts below, not production readiness.
 | SSH/rsync use explicit host/key/trust, safe quoting, finite process budgets, and no replay | Unit suite: `test_ssh.py` | Captured Popen argv/environment/input, fake exit/timeout/interruption cases, local process-group cleanup | Does not authenticate or verify a real server; POSIX adapter only |
 | Linux resource methods remain independent, typed, bounded, and fail without workflow/replay | Unit suite: `test_linux.py` | Fake SSH commands/uploads, exact systemd/Compose targets, YAML edits, expected-image checks, shared edit clock | Does not run systemd, Docker, sudo, or rsync |
 | Windows service calls honor native-state transitions, exact literal name binding, and distinct errors without polling or write replay | Unit suite: `tests/unit/test_windows_services.py` | Fake PowerShell calls and results across states, scalar parameter capture, error mapping and sanitized failures | Does not execute Windows PowerShell or establish actual SCM semantics |
+| Filesystem artifact staging/retrieval validates keys, bounds streaming, verifies hashes before promotion, and avoids clobber by default | Unit suite: `tests/unit/test_artifact_filesystem.py` | Temporary local roots/files, unsafe path/link cases, chunked content, digest mismatches, no-clobber and overwrite behavior | Local temporary files do not establish SMB/NFS permissions, atomicity, durability, or hostile-directory-race behavior |
+| Artifact HTTP streaming preserves explicit Nexus targets/authentication, verifies raw downloads, sanitizes failures, and never replays PUT | Unit suite: `tests/unit/test_artifact_http.py` and `tests/unit/test_nexus.py` | HTTPX intercepted requests plus injected streaming responses, captured URLs/headers/body/timeout, status/error and hash cases, ownership checks | Interception/fakes do not authenticate to a Nexus server or perform TLS/network I/O |
+| OpenBao KV v2 reads preserve explicit targets, token/namespace/version inputs, validate secret envelopes, and hide secret data from representations/errors | Unit suite: `tests/unit/test_openbao.py` | Captured requests, HTTPX MockTransport, schema/status cases, secret-marker and lifecycle checks | Does not establish live token permissions, namespace support, TLS, or server compatibility |
 | Remote file edits refuse unsafe layouts/conflicts and replace without partial in-place writes | Unit suite: `test_compose_file_helper.py` | Actual helper execution on temporary files, fingerprint conflicts, lock contention, metadata and unsafe-file cases | Non-Linux POSIX tests shim absent xattr APIs; Linux ACL/SELinux/xattrs and unrelated concurrent writers require separate evidence |
-| Distribution builds and all base imports/fake operations need no SDK or target | Packaging suite: `tests/packaging/test_distribution.py` | Offline wheel/sdist build and no-dependency install in an isolated venv, including Windows public imports and a fake read | Extra resolution/platform authentication require separate checks |
+| Distribution builds and base imports/fake operations need no SDK or target | Packaging suite: `tests/packaging/test_distribution.py` | Offline wheel/sdist build and no-dependency install in an isolated venv, including Windows imports and filesystem/Nexus/OpenBao fake operations | Extra resolution, mounted filesystems, and server authentication require separate checks |
 | Actual Kerberos, IIS management, and initial-state restoration work | Target owner: opt-in integration suite | Approved non-production HTTPS endpoint and confirmed disposable pool | Agent loss/transport failures can defeat restoration |
 | Windows remoting, service permissions, and native service/dependency behavior work on a target | Windows target owner | Approved non-production target on Windows PowerShell 5.1+, trusted HTTPS/authentication, and a disposable service | No live Windows service target has been contacted; fakes and packaging checks are not live evidence |
+| Mounted filesystem behavior and Nexus raw-hosted policy/authentication work on targets | Storage/registry target owners | Explicit approved SMB/NFS access path or non-production Nexus raw hosted repository over trusted HTTPS | No SMB/NFS share or Nexus server behavior is established by local or fake tests |
 | HTTP clients can read actual API targets | Target owners: `test_http_clients.py` | Explicit secret config file, non-production confirmation, approved repo/application/project | Read-only smoke checks do not exercise CAS pushes, PR/pipeline creation, sync completion, or negative TLS/RBAC cases |
 | Certificates, denied access, endpoint restrictions, and server versions meet deployment policy | Deployment/security owners | Positive and negative live checks with approved identities/certificates | Not established by a mocked request or a happy-path pool test |
 
@@ -115,7 +157,8 @@ with mocks or performed against illustrative/default targets.
 ## Offline checks
 
 ```text
-uv sync --extra iis --extra windows --extra azure-devops --extra argocd --extra sonarqube --extra linux
+uv sync --extra iis --extra windows --extra nexus --extra openbao \
+  --extra azure-devops --extra argocd --extra sonarqube --extra linux
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy
@@ -124,12 +167,14 @@ uv run python -m build --no-isolation
 ```
 
 The packaging test builds using locally installed build tools (`--no-isolation`)
-and installs its wheel with `--no-index --no-deps`. It checks public imports and a
-fake-transport operations in the clean environment, not just archive contents.
+and installs its wheel with `--no-index --no-deps`. It checks public imports and
+fake filesystem/Nexus operations in the clean environment, not just archive
+contents. The fake Nexus read does not import HTTPX or contact a server.
 All four live tests are skipped by default, with separate IIS/HTTP opt-in gates.
 
 Before release, resolve/install the requested extras from the built wheel in
-separate environments and run the offline suite on supported Python versions and Windows.
+separate environments, including `nexus`, and run the offline suite on supported
+Python versions and Windows.
 Installing the Linux/macOS `kerberos` extra additionally needs native libraries.
 Repeat evidence when the relevant code, dependency version, target policy, or
 runtime changes; do not treat old offline results as live environment evidence.
@@ -185,6 +230,38 @@ no inferred endpoint or default live target.
 
 These references describe API contracts only. They do not show that the C# helper,
 PowerShell endpoint, or native SCM behavior was executed or validated on Windows.
+
+## Artifact verification boundary
+
+The filesystem unit-test owner and clean-wheel smoke operation use pytest-owned
+temporary local paths only; they do not mount or contact SMB/NFS shares. They cover
+local path validation, bounded file operations, digest checks, and promotion behavior,
+not share ACLs, permissions, server-side no-clobber/atomicity, crash durability, or
+hostile concurrent directory changes. Filesystem deployment remains caller-managed.
+
+Nexus unit tests use captured HTTPX requests and fake `ArtifactHttpResponse` streams.
+The packaging test retrieves from a fake injected transport and separately confirms
+that default-operation dependency failure is actionable without HTTPX. Neither path
+contacts a Nexus service, performs TLS/authentication, or establishes repository
+redeploy policy. No live SMB/NFS share or Nexus server has been validated. Before
+release, target owners must approve and verify a real accessible share or disposable
+Nexus raw hosted repository, including permissions, TLS, credentials, repository
+policy, and ambiguous PUT outcomes. No storage operation is evidence of deployment
+to a Windows/Linux target.
+
+## OpenBao verification boundary
+
+The 92 focused OpenBao tests establish request construction, strict KV v2 decoding,
+version selection, valid data with a nonempty future deletion timestamp, sanitized
+errors/representations, and owned/borrowed lifecycle using fake transports and
+intercepted HTTPX requests. They do not use live tokens or contact OpenBao.
+Clean-wheel checks additionally verify public imports and fake reads without HTTPX;
+their final runtime result is included in the combined run above.
+Before deployment, target owners must approve read-only checks of the intended KV
+v2 mount/path, token policy, TLS trust, optional namespace, and version behavior.
+A 404 means absent or unreadable, not proof of a particular deletion state. Login,
+token renewal/rotation, writes, and automatic consumer configuration remain outside
+this API.
 
 ## Opt-in IIS smoke test
 

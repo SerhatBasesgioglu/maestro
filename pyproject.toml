@@ -24,6 +24,8 @@ classifiers = [
 azure-devops = ["httpx>=0.28,<0.29"]
 argocd = ["httpx>=0.28,<0.29"]
 sonarqube = ["httpx>=0.28,<0.29"]
+nexus = ["httpx>=0.28,<0.29"]
+openbao = ["httpx>=0.28,<0.29"]
 iis = ["pypsrp>=0.9.1,<0.10"]
 windows = ["pypsrp>=0.9.1,<0.10"]
 kerberos = ["pypsrp[kerberos]>=0.9.1,<0.10; sys_platform != 'win32'"]

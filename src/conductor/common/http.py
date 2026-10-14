@@ -91,7 +91,7 @@ class HttpxTransport:
             except ImportError:
                 raise MissingDependencyError(
                     "Install the requested conductor[azure-devops], conductor[argocd], "
-                    "or conductor[sonarqube] extra for HTTP support."
+                    "conductor[sonarqube], or conductor[openbao] extra for HTTP support."
                 ) from None
             self._backend = _HttpxBackend(ca_bundle=self._ca_bundle)
         return self._backend.request(
