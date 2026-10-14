@@ -8,7 +8,66 @@ The highest-risk boundary is an uncertain remote mutation: success or failure of
 the local request does not alone prove the final remote state, completed pipeline,
 or successful deployment. Kubernetes/workflows remain outside this release.
 
+The dated records below retain commands and package names as they were run. Any
+`conductor` package reference in those records describes the pre-rename namespace;
+it is not current install or import guidance.
+
+## Hosted CI preflight — 2026-10-14
+
+This is fresh local CI-equivalent evidence, not a run on GitHub Actions or Azure
+Pipelines hosted agents.
+
+- macOS 26.5.1 arm64 with uv 0.12.15; the primary `.venv` remains Python 3.11.15.
+  The exact CI pytest gate
+  (`uv run --no-sync pytest --cov=maestro --cov-report=term-missing
+  --cov-report=xml:coverage.xml --cov-fail-under=95
+  --junitxml=test-results/junit.xml`) reported **907 passed, 7 skipped, 95.52%**
+  coverage on Python 3.11.15. In a temporary Python 3.14.6 environment, Ruff lint
+  and format checks, mypy, and the same pytest gate passed: **907 passed, 7 skipped,
+  95.41%** coverage. The 95% coverage floor passed on both runtimes.
+- Python 3.14.6 also built the `maestro` 0.1.0 wheel and sdist and verified that
+  the retired `conductor` namespace is absent. JUnit and coverage XML reports were
+  valid. The locked Python 3.14 sync needed an online fetch for one uncached locked
+  wheel; no manifest or lockfile changes were made.
+- The Azure YAML was parsed as YAML 1.2; triggers, matrix, pinned tools, extras, and
+  gates matched the GitHub CI lane. `bash -n` passed for all 13 inline CI script
+  blocks. This is syntax/configuration validation only, not an Azure or GitHub run.
+- Actual hosted execution, actionlint, GitHub push/PR activation, and Azure
+  organization/project/GitHub App or service-connection registration remain
+  pending. No live hosts or AWS were contacted.
+
+## Package rename offline baseline — 2026-10-14
+
+This fresh offline baseline validates the `maestro` 0.1.0 package rename. The
+historical 907-passed baseline at `076b022` below remains explicitly pre-rename.
+
+- macOS 26.5.1 arm64, Python 3.11.15 in the rebuilt `.venv`: `maestro` and its
+  public domain imports load, and runtime/distribution metadata report version
+  0.1.0. `conductor` is neither importable nor installed as a distribution.
+- `uv run --no-sync ruff check .`, `uv run --no-sync ruff format --check .`, and
+  `uv run --no-sync mypy` passed (94 files formatted; no issues in 70 source
+  files). `uv run --no-sync pytest --cov=maestro`: **907 passed, 7 skipped**,
+  **96%** coverage. The skips are three gated live HTTP tests, one gated live IIS
+  test, two Windows-only filesystem rename cases, and one Linux-only xattr case.
+  Packaging tests passed, including installation of the built wheel into a clean
+  no-dependency consumer and checks that `conductor` is neither importable nor
+  installed there.
+- `uv run --no-sync python -m build --no-isolation` built
+  `dist/maestro-0.1.0-py3-none-any.whl` and `dist/maestro-0.1.0.tar.gz`.
+  Inspection confirmed `Name: maestro`, version `0.1.0`, and the `maestro`
+  namespace with no `conductor` package. `git diff --check` passed. The already
+  verified `UV_OFFLINE=1 uv lock --check` resolved 42 packages; no dependency or
+  lock changes were made in this validation lane.
+- No live target was contacted. HTTP/5985, HTTPS, SSH, domain-client and packaging
+  checks are offline assertions or fakes; live HTTP/IIS gates remained off. This
+  is not evidence of server-side wrapping, TLS handshakes, remote compatibility,
+  credentials, or production readiness.
+
 ## WinRM HTTP/5985 offline validation — 2026-10-14
+
+This 907-passed baseline is recorded at `076b022`, before the package/import
+namespace rename; it is historical evidence, not validation of the `maestro`
+namespace.
 
 - macOS 26.5.1 arm64, Python 3.11.15, pypsrp 0.9.1. `uv run --no-sync pytest
   --cov=conductor`: **907 passed, 7 skipped**, **96%** statement/branch coverage.
@@ -188,7 +247,7 @@ uv sync --extra iis --extra windows --extra nexus --extra openbao \
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy
-uv run pytest --cov=conductor
+uv run pytest --cov=maestro
 uv run python -m build --no-isolation
 ```
 

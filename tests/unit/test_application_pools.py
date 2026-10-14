@@ -4,8 +4,8 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-import conductor.iis.application_pools as pools_module
-from conductor.common.errors import (
+import maestro.iis.application_pools as pools_module
+from maestro.common.errors import (
     AuthenticationError,
     ConfigurationError,
     OperationTimeoutError,
@@ -14,7 +14,7 @@ from conductor.common.errors import (
     TransportError,
     TransportTimeoutError,
 )
-from conductor.iis import (
+from maestro.iis import (
     ApplicationPoolNotFoundError,
     ApplicationPoolState,
     ApplicationPoolStateError,
@@ -24,8 +24,8 @@ from conductor.iis import (
     IisPermissionDeniedError,
     IisProtocolError,
 )
-from conductor.iis._scripts import APPLICATION_POOL
-from conductor.transports import PowerShellError, PowerShellErrorCategory, PowerShellResult
+from maestro.iis._scripts import APPLICATION_POOL
+from maestro.transports import PowerShellError, PowerShellErrorCategory, PowerShellResult
 
 S = ApplicationPoolState
 
@@ -273,7 +273,7 @@ def test_unsafe_names_fail_before_io(name, method):
     [
         (
             PowerShellErrorCategory.OBJECT_NOT_FOUND,
-            "Conductor.ApplicationPoolNotFound,Write-Error",
+            "Maestro.ApplicationPoolNotFound,Write-Error",
             ApplicationPoolNotFoundError,
         ),
         (PowerShellErrorCategory.OBJECT_NOT_FOUND, "Modules_ModuleNotFound", IisCommandError),
@@ -297,7 +297,7 @@ def test_remote_failures_are_distinguishable(category, identifier, error_class):
 def test_access_denied_is_not_masked_by_missing_resource():
     errors = (
         PowerShellError(
-            PowerShellErrorCategory.OBJECT_NOT_FOUND, "Conductor.ApplicationPoolNotFound"
+            PowerShellErrorCategory.OBJECT_NOT_FOUND, "Maestro.ApplicationPoolNotFound"
         ),
         PowerShellError(PowerShellErrorCategory.PERMISSION_DENIED),
     )

@@ -4,14 +4,14 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-import conductor.transports.powershell_remoting as remoting
-from conductor.common.errors import (
+import maestro.transports.powershell_remoting as remoting
+from maestro.common.errors import (
     ConfigurationError,
     MissingDependencyError,
     TransportError,
     TransportTimeoutError,
 )
-from conductor.transports import PowerShellRemoting, PowerShellRemotingConfig, PowerShellResult
+from maestro.transports import PowerShellRemoting, PowerShellRemotingConfig, PowerShellResult
 
 ENDPOINT = "https://iis-test.company.local:5986/wsman"
 HTTP_ENDPOINT = "http://iis-test.company.local:5985/wsman"
@@ -352,14 +352,14 @@ def test_missing_optional_sdk_error_is_actionable_and_sanitized(monkeypatch):
     real_import = builtins.__import__
 
     def no_sdk(name, *args, **kwargs):
-        if name == "conductor.transports._pypsrp":
+        if name == "maestro.transports._pypsrp":
             raise ImportError("sensitive-native-library-details")
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", no_sdk)
     with pytest.raises(MissingDependencyError) as failure:
         remoting._make_session(PowerShellRemotingConfig(endpoint=ENDPOINT))
-    assert "conductor[iis]" in str(failure.value)
+    assert "maestro[iis]" in str(failure.value)
     assert "sensitive-native-library-details" not in "".join(
         traceback.format_exception(failure.value)
     )

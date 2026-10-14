@@ -6,11 +6,11 @@ import traceback
 import httpx
 import pytest
 
-import conductor.common._httpx as adapter
-import conductor.common.http as http_module
-from conductor.argocd import ArgoCdClient, ArgoCdConfig
-from conductor.azure_devops import AzureDevOpsClient, AzureDevOpsConfig
-from conductor.common.errors import (
+import maestro.common._httpx as adapter
+import maestro.common.http as http_module
+from maestro.argocd import ArgoCdClient, ArgoCdConfig
+from maestro.azure_devops import AzureDevOpsClient, AzureDevOpsConfig
+from maestro.common.errors import (
     AuthenticationError,
     ConfigurationError,
     ConflictError,
@@ -24,8 +24,8 @@ from conductor.common.errors import (
     TransportError,
     TransportTimeoutError,
 )
-from conductor.common.http import HttpResponse, HttpxTransport
-from conductor.sonarqube import SonarQubeClient, SonarQubeConfig
+from maestro.common.http import HttpResponse, HttpxTransport
+from maestro.sonarqube import SonarQubeClient, SonarQubeConfig
 
 
 @pytest.fixture
@@ -214,7 +214,7 @@ def test_missing_http_extra_is_actionable_and_does_not_attempt_network(monkeypat
     real_import = builtins.__import__
 
     def no_httpx(name, *args, **kwargs):
-        if name == "conductor.common._httpx":
+        if name == "maestro.common._httpx":
             raise ImportError("SECRET")
         return real_import(name, *args, **kwargs)
 
@@ -224,7 +224,7 @@ def test_missing_http_extra_is_actionable_and_does_not_attempt_network(monkeypat
         pytest.raises(MissingDependencyError) as failure,
     ):
         sonar.projects.get("project")
-    assert "conductor[sonarqube]" in str(failure.value)
+    assert "maestro[sonarqube]" in str(failure.value)
     assert "SECRET" not in "".join(traceback.format_exception(failure.value))
 
 

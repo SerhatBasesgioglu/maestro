@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from conductor.common.http import HttpResponse
+from maestro.common.http import HttpResponse
 
 
 class FakeHttpTransport:

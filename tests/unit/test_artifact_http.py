@@ -6,11 +6,11 @@ from collections import deque
 import httpx
 import pytest
 
-from conductor.artifacts.transport import (
+from maestro.artifacts.transport import (
     ArtifactHttpResponse,
     HttpxArtifactTransport,
 )
-from conductor.common.errors import (
+from maestro.common.errors import (
     ConfigurationError,
     MissingDependencyError,
     TlsError,
@@ -382,7 +382,7 @@ def test_missing_optional_http_dependency_is_actionable_and_lazy(monkeypatch):
     real_import = builtins.__import__
 
     def without_adapter(name, *args, **kwargs):
-        if name == "conductor.artifacts._httpx":
+        if name == "maestro.artifacts._httpx":
             raise ImportError("private SECRET")
         return real_import(name, *args, **kwargs)
 
@@ -390,5 +390,5 @@ def test_missing_optional_http_dependency_is_actionable_and_lazy(monkeypatch):
     transport = HttpxArtifactTransport()
     with pytest.raises(MissingDependencyError) as failure:
         get(transport)
-    assert "conductor[nexus]" in str(failure.value)
+    assert "maestro[nexus]" in str(failure.value)
     assert "SECRET" not in "".join(traceback.format_exception(failure.value))

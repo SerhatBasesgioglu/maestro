@@ -1,7 +1,7 @@
 import pytest
 
-from conductor.common.errors import ConfigurationError, ProtocolError
-from conductor.sonarqube import QualityGateStatus, SonarQubeClient, SonarQubeConfig, SonarQubeError
+from maestro.common.errors import ConfigurationError, ProtocolError
+from maestro.sonarqube import QualityGateStatus, SonarQubeClient, SonarQubeConfig, SonarQubeError
 
 
 @pytest.fixture

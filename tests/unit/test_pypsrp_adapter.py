@@ -12,8 +12,8 @@ from pypsrp.exceptions import AuthenticationError as SdkAuthenticationError
 from pypsrp.exceptions import WinRMTransportError, WSManFaultError
 from spnego.exceptions import SpnegoError
 
-import conductor.transports._pypsrp as adapter
-from conductor.common.errors import (
+import maestro.transports._pypsrp as adapter
+from maestro.common.errors import (
     AuthenticationError,
     MissingDependencyError,
     PermissionDeniedError,
@@ -21,8 +21,8 @@ from conductor.common.errors import (
     TransportError,
     TransportTimeoutError,
 )
-from conductor.transports import PowerShellErrorCategory as C
-from conductor.transports import PowerShellRemotingConfig
+from maestro.transports import PowerShellErrorCategory as C
+from maestro.transports import PowerShellRemotingConfig
 
 ENDPOINT = "https://iis-test.company.local:5986/wsman"
 HTTP_ENDPOINT = "http://iis-test.company.local:5985/wsman"

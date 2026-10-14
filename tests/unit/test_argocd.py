@@ -1,7 +1,7 @@
 import pytest
 
-import conductor.argocd.applications as applications_module
-from conductor.argocd import (
+import maestro.argocd.applications as applications_module
+from maestro.argocd import (
     ApplicationHealth,
     ApplicationHealthTimeoutError,
     ApplicationSyncStatus,
@@ -10,7 +10,7 @@ from conductor.argocd import (
     ArgoCdError,
     OperationPhase,
 )
-from conductor.common.errors import (
+from maestro.common.errors import (
     AuthenticationError,
     ConfigurationError,
     OperationTimeoutError,

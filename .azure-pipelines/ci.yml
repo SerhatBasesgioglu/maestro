@@ -1,0 +1,106 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+jobs:
+  - job: CI
+    displayName: 'CI (Python $(pythonVersion))'
+    timeoutInMinutes: 30
+    pool:
+      vmImage: ubuntu-24.04
+    strategy:
+      matrix:
+        Python311:
+          pythonVersion: '3.11'
+        Python314:
+          pythonVersion: '3.14'
+    steps:
+      - checkout: self
+        persistCredentials: false
+
+      - task: UsePythonVersion@0
+        displayName: 'Use Python $(pythonVersion)'
+        inputs:
+          versionSpec: '$(pythonVersion)'
+          architecture: x64
+
+      - bash: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check uv==0.12.15
+        displayName: Install pinned uv
+
+      - bash: |
+          set -euo pipefail
+          uv sync --locked --python '$(pythonVersion)' \
+            --extra iis \
+            --extra windows \
+            --extra nexus \
+            --extra openbao \
+            --extra azure-devops \
+            --extra argocd \
+            --extra sonarqube \
+            --extra linux
+        displayName: Sync locked dependencies
+
+      - bash: |
+          set -euo pipefail
+          uv run --no-sync ruff check .
+        displayName: Ruff lint
+
+      - bash: |
+          set -euo pipefail
+          uv run --no-sync ruff format --check .
+        displayName: Ruff format check
+
+      - bash: |
+          set -euo pipefail
+          uv run --no-sync mypy
+        displayName: Mypy
+
+      - bash: |
+          set -euo pipefail
+          uv run --no-sync pytest \
+            --cov=maestro \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=95 \
+            --junitxml=test-results/junit.xml
+        displayName: Pytest with coverage
+
+      - bash: |
+          set -euo pipefail
+          uv run --no-sync python -m build --no-isolation
+        displayName: Build distributions
+
+      - task: PublishTestResults@2
+        displayName: Publish test results
+        condition: succeededOrFailed()
+        inputs:
+          testResultsFormat: JUnit
+          testResultsFiles: test-results/junit.xml
+          failTaskOnFailedTests: true
+          failTaskOnMissingResultsFile: true
+          failTaskOnFailureToPublishResults: true
+          publishRunAttachments: true
+
+      - task: PublishCodeCoverageResults@2
+        displayName: Publish code coverage
+        condition: succeededOrFailed()
+        inputs:
+          summaryFileLocation: '$(Build.SourcesDirectory)/coverage.xml'
+          pathToSources: '$(Build.SourcesDirectory)/src/maestro'
+          failIfCoverageEmpty: true
+
+      - task: PublishPipelineArtifact@1
+        displayName: Publish distribution artifact
+        condition: succeeded()
+        inputs:
+          targetPath: '$(Build.SourcesDirectory)/dist'
+          artifact: 'maestro-dist-py$(pythonVersion)'
+          publishLocation: pipeline

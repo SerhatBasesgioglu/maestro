@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from conductor.argocd import ArgoCdClient, ArgoCdConfig
-from conductor.azure_devops import AzureDevOpsClient, AzureDevOpsConfig
-from conductor.sonarqube import SonarQubeClient, SonarQubeConfig
+from maestro.argocd import ArgoCdClient, ArgoCdConfig
+from maestro.azure_devops import AzureDevOpsClient, AzureDevOpsConfig
+from maestro.sonarqube import SonarQubeClient, SonarQubeConfig
 
 pytestmark = [pytest.mark.integration, pytest.mark.http_integration]
 

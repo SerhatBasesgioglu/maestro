@@ -8,15 +8,15 @@ from dataclasses import replace
 
 import pytest
 
-import conductor.transports.ssh as adapter
-from conductor.common.errors import (
+import maestro.transports.ssh as adapter
+from maestro.common.errors import (
     ConfigurationError,
     MissingDependencyError,
     ProtocolError,
     TransportError,
     TransportTimeoutError,
 )
-from conductor.transports import CommandResult, OpenSshTransport, SshConfig
+from maestro.transports import CommandResult, OpenSshTransport, SshConfig
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="The process adapter requires POSIX.")
 

@@ -1,4 +1,4 @@
-# Conductor
+# Maestro
 
 A reusable, synchronous Python 3.11+ library for internal development, DevOps,
 infrastructure, and delivery operations. The library is the product: no CLI,
@@ -16,19 +16,19 @@ integration placeholders or mandatory consumer wrappers.
 Publish to your approved private Python feed, then pin the version in consumers:
 
 ```powershell
-python -m pip install "conductor[iis]==0.1.0"
-python -m pip install "conductor[windows]==0.1.0"
-python -m pip install "conductor[nexus]==0.1.0"
-python -m pip install "conductor[openbao]==0.1.0"
-python -m pip install "conductor[azure-devops,argocd,sonarqube]==0.1.0"
-python -m pip install "conductor[linux]==0.1.0"
+python -m pip install "maestro[iis]==0.1.0"
+python -m pip install "maestro[windows]==0.1.0"
+python -m pip install "maestro[nexus]==0.1.0"
+python -m pip install "maestro[openbao]==0.1.0"
+python -m pip install "maestro[azure-devops,argocd,sonarqube]==0.1.0"
+python -m pip install "maestro[linux]==0.1.0"
 ```
 
 The base distribution has no runtime dependencies. IIS remoting and Windows
 service management use optional `pypsrp` 0.9.x, selected by the `iis` and `windows`
 extras respectively. Windows Kerberos uses SSPI and does not require the non-Windows
 Kerberos extra. For a separately configured Linux/macOS Kerberos caller, install
-`conductor[iis,kerberos]`; native GSSAPI/Kerberos prerequisites are also needed.
+`maestro[iis,kerberos]`; native GSSAPI/Kerberos prerequisites are also needed.
 Non-Windows live authentication has not been validated for this project.
 
 The independent `azure-devops`, `argocd`, `sonarqube`, `nexus`, and `openbao` extras
@@ -47,13 +47,13 @@ before publishing. Version 0.1.0 is the initial development release.
 
 Clients require explicit HTTPS targets and caller-supplied tokens. Tokens below
 are variables supplied by the consumer from its approved secret source, not
-credentials discovered by Conductor. **Authorize mutations before invoking them.**
+credentials discovered by Maestro. **Authorize mutations before invoking them.**
 These clients are independent; no IIS connection or deployment workflow is needed.
 
 ### Azure DevOps
 
 ```python
-from conductor.azure_devops import AzureDevOpsClient, AzureDevOpsConfig
+from maestro.azure_devops import AzureDevOpsClient, AzureDevOpsConfig
 
 with AzureDevOpsClient(
     AzureDevOpsConfig(
@@ -96,7 +96,7 @@ Branch names may be short or `refs/heads/...`; commits must be non-zero full SHA
 identifiers. REST API 7.1 is the default; an on-premises collection URL and explicit
 `api_version` can be supplied, but compatibility with that server needs validation.
 
-Azure DevOps can reject a ref update inside HTTP 200. Conductor checks the per-ref
+Azure DevOps can reject a ref update inside HTTP 200. Maestro checks the per-ref
 result: stale expected commits/locks/name conflicts raise `BranchConflictError`,
 permission rejections raise `PermissionDeniedError`, and other rejections raise
 `BranchUpdateError` with `update_status`. Writes are not retried or deduplicated;
@@ -106,7 +106,7 @@ before attempting again. Server-side branch policies remain authoritative.
 ### Argo CD
 
 ```python
-from conductor.argocd import ArgoCdClient, ArgoCdConfig
+from maestro.argocd import ArgoCdClient, ArgoCdConfig
 
 with ArgoCdClient(
     ArgoCdConfig(
@@ -148,7 +148,7 @@ the last observed application; authentication/transport failures propagate immed
 ### SonarQube
 
 ```python
-from conductor.sonarqube import SonarQubeClient, SonarQubeConfig, QualityGateStatus
+from maestro.sonarqube import SonarQubeClient, SonarQubeConfig, QualityGateStatus
 
 with SonarQubeClient(
     SonarQubeConfig(
@@ -179,20 +179,20 @@ must be verified against your target.
 
 ### OpenBao KV v2 read-only
 
-`conductor[openbao]` supplies the default HTTPX 0.28.x adapter. The token and any
-namespace/CA settings come explicitly from the consumer; Conductor does not read
+`maestro[openbao]` supplies the default HTTPX 0.28.x adapter. The token and any
+namespace/CA settings come explicitly from the consumer; Maestro does not read
 environment variables, log in, renew or rotate tokens, or change consumer
 configuration:
 
 ```python
-from conductor.openbao import OpenBaoClient, OpenBaoConfig
+from maestro.openbao import OpenBaoClient, OpenBaoConfig
 
 bao_token = ...  # Supplied by the consumer from an approved secret source.
 config = OpenBaoConfig(
     server_url="https://openbao.example.net/platform",
     token=bao_token,
     namespace="team/app",  # Optional X-Vault-Namespace.
-    ca_bundle="/etc/conductor/openbao-ca.pem",  # Optional trusted PEM CA.
+    ca_bundle="/etc/maestro/openbao-ca.pem",  # Optional trusted PEM CA.
 )
 
 with OpenBaoClient(config) as bao:
@@ -217,7 +217,7 @@ The API is read-only: there is no login, token renewal/rotation, write, delete, 
 environment loading, discovery, or deployment workflow. HTTP 403 means access is
 denied. A 404 reports an absent or unreadable version; it does not promise to
 distinguish absent, deleted, destroyed, or otherwise unreadable data. Caller-owned
-token TTL/rotation policy remains outside Conductor. HTTP phase timeouts do not
+token TTL/rotation policy remains outside Maestro. HTTP phase timeouts do not
 promise a hard elapsed-time deadline or cancellation. No live OpenBao authentication,
 TLS, namespace, permission, or server compatibility is claimed.
 See the [OpenBao KV v2 API](https://openbao.org/docs/api/secret/kv/kv-v2/) for the
@@ -239,7 +239,7 @@ server endpoint contract.
   failures. A dispatched mutation may already have completed; failure is not proof
   of rollback, cancellation, or permission to replay it.
 - Use `with` or `close()` for owned HTTP connections. An injected
-  `conductor.common.http.HttpTransport` is borrowed and never closed by the client;
+  `maestro.common.http.HttpTransport` is borrowed and never closed by the client;
   its implementer owns TLS, timeouts, retries, and sanitized errors. The
   `HttpResponse` model supports dependency-free fake transports.
 - Instances are not thread-safe. Closed clients cannot be reused. Tokens, commit
@@ -255,15 +255,15 @@ uploads do not stop/start systemd services; Compose operations never invoke rsyn
 Consumers decide sequencing, authorization, restoration, and target serialization.
 
 ```python
-from conductor.linux import ComposeProject, LinuxClient
-from conductor.transports import OpenSshTransport, SshConfig
+from maestro.linux import ComposeProject, LinuxClient
+from maestro.transports import OpenSshTransport, SshConfig
 
 ssh = OpenSshTransport(
     SshConfig(
         host="linux-test.company.local",
         username="deploy",
-        identity_file="/secure/conductor/id_ed25519",
-        known_hosts="/secure/conductor/known_hosts",
+        identity_file="/secure/maestro/id_ed25519",
+        known_hosts="/secure/maestro/known_hosts",
         command_timeout=120,
     )
 )
@@ -309,13 +309,13 @@ project = ComposeProject(
   target behavior: approve the file and target environment before invoking it.
 - `sudo=True` uses non-interactive `sudo -n`; it neither configures permissions nor
   makes arbitrary SSH/Compose source a sandbox. Rsync still runs as the SSH user.
-- Image edits additionally require `conductor[linux]` on the caller and Python 3
+- Image edits additionally require `maestro[linux]` on the caller and Python 3
   on the remote Linux target. The file must be UTF-8, regular, single-linked, at
   most 1 MiB, without special permission bits. Final symlinks and whole-service
   anchors/aliases are refused. Comments/quotes are preserved; formatting may change.
-- Image edits use a fingerprint, a persistent sibling `.conductor.lock` advisory
+- Image edits use a fingerprint, a persistent sibling `.maestro.lock` advisory
   lock, and same-directory atomic replacement. Owner/mode/xattrs are preserved or
-  the edit fails; inode/mtime change. Cooperating Conductor writers are serialized,
+  the edit fails; inode/mtime change. Cooperating Maestro writers are serialized,
   but **external editors must also coordinate**; a fingerprint is not a distributed
   lock or a guaranteed CAS against unrelated writers. This supports one YAML file,
   not an effective multi-file/include/interpolated Compose model.
@@ -336,8 +336,8 @@ Docker/systemd behavior, and actual transfers still need approved live validatio
 ## Remote IIS usage
 
 ```python
-from conductor.iis import IisClient
-from conductor.transports import PowerShellRemoting
+from maestro.iis import IisClient
+from maestro.transports import PowerShellRemoting
 
 with PowerShellRemoting(
     endpoint="https://iis02.company.local:5986/wsman",
@@ -355,15 +355,15 @@ must happen before these calls. No methods execute IIS commands locally or fall
 back to the agent machine. Endpoints explicitly select HTTPS or HTTP: an omitted
 HTTPS port defaults to 443, while an omitted HTTP port defaults to 5985. Use an
 explicit `:5986` for a normal WinRM HTTPS endpoint; HTTP/5985 is also supported,
-for example `http://iis02.company.local:5985/wsman`. Conductor does not retry an
+for example `http://iis02.company.local:5985/wsman`. Maestro does not retry an
 endpoint using another scheme.
 
 For an HTTP/5985 proof of concept, this read-only call uses caller-supplied NTLM
 credentials; populate the variables from an approved secret source:
 
 ```python
-from conductor.iis import IisClient
-from conductor.transports import PowerShellRemoting
+from maestro.iis import IisClient
+from maestro.transports import PowerShellRemoting
 
 with PowerShellRemoting(
     endpoint="http://iis02.company.local:5985/wsman",
@@ -383,7 +383,7 @@ required for live mutations.
 
 ### Required environment
 
-- Machine 1: Windows domain-connected agent, Python, and Conductor. For Kerberos,
+- Machine 1: Windows domain-connected agent, Python, and Maestro. For Kerberos,
   it must work for the **actual agent service identity**, not just an interactive
   user.
 - Machine 2: Windows IIS server, Windows PowerShell with `WebAdministration` and
@@ -393,7 +393,7 @@ required for live mutations.
   certificate verification cannot be disabled. HTTP has no TLS certificate or
   certificate-backed server identity; use it only where explicitly approved.
 - The caller identity needs remoting access and permission to read/manage the
-  intended pools. Python and Conductor are **not** installed on machine 2.
+  intended pools. Python and Maestro are **not** installed on machine 2.
 
 Kerberos is the default. Existing `auth="negotiate"` may fall back to NTLM;
 `auth="ntlm"` requires a caller-supplied username and password. Obtain credentials
@@ -434,8 +434,9 @@ selection. Spaces, Unicode, apostrophes, and other literal names are supported.
 
 ### Errors
 
-IIS exceptions are available from `conductor.iis`; shared categories are in
-`conductor.common.errors`:
+IIS exceptions are available from `maestro.iis`; shared categories are in
+`maestro.common.errors`. Project-owned exceptions derive from `MaestroError` in
+that module, the library's base exception:
 
 - `ApplicationPoolNotFoundError`: the named remote pool is absent.
 - `IisPermissionDeniedError` / shared `PermissionDeniedError`: denied resource or
@@ -478,7 +479,7 @@ healthy, and instances are not thread-safe. Normal cleanup errors are surfaced;
 if an operation is already failing, a cleanup error is logged without replacing
 the original error. The transport does not restore application-pool state.
 
-Conductor never configures the root logger or prints credentials. Credentials,
+Maestro never configures the root logger or prints credentials. Credentials,
 remote result payloads, and remote error identifiers are excluded from relevant
 representations; external exception messages/bodies are not chained into its
 errors. **Do not enable pypsrp wire-level DEBUG logging or traceback-local dumps
@@ -493,8 +494,8 @@ the same endpoint, authentication, and transport-lifecycle rules described above
 for IIS, including its HTTPS/HTTP-specific requirements:
 
 ```python
-from conductor.transports import PowerShellRemoting
-from conductor.windows import WindowsClient
+from maestro.transports import PowerShellRemoting
+from maestro.windows import WindowsClient
 
 with PowerShellRemoting(
     endpoint="https://win02.company.local:5986/wsman",
@@ -512,7 +513,7 @@ as a separately bound scalar parameter. Names are limited to at most 256 UTF-16
 code units; unpaired surrogates are rejected. The target needs Windows
 PowerShell 5.1 or later and an authorized, full-language remoting endpoint that
 supports `Add-Type`, .NET, and native SCM calls. Constrained Language Mode and JEA
-are not made compatible merely by selecting their endpoint. Conductor and Python
+are not made compatible merely by selecting their endpoint. Maestro and Python
 remain on the caller.
 
 | Method | Contract |
@@ -526,7 +527,7 @@ when already `Running`; it dispatches only from `Stopped` and rejects paused,
 pending, or unknown states (there is no resume operation). Stopping is a no-op
 when already `Stopped`; it dispatches from `Running` or `Paused` and rejects
 pending or unknown states. A start can cause the Service Control Manager to start
-ordinary dependencies, but Conductor never enables a disabled service. Stop never
+ordinary dependencies, but Maestro never enables a disabled service. Stop never
 forces or cascades a stop to active dependent services.
 
 Start uses `ServiceController.Start()`; stop uses a constant C# helper loaded with
@@ -548,9 +549,9 @@ try again.
 Missing services, invalid states, active dependents, disabled services, native
 command failures, and protocol failures map to `ServiceNotFoundError`,
 `ServiceStateError`, `ServiceDependencyError`, `ServiceDisabledError`,
-`ServiceCommandError`, and `ServiceProtocolError` from `conductor.windows`.
+`ServiceCommandError`, and `ServiceProtocolError` from `maestro.windows`.
 Authentication and access denial use the shared `AuthenticationError` and
-`PermissionDeniedError` from `conductor.common.errors`. Raw remote error text is
+`PermissionDeniedError` from `maestro.common.errors`. Raw remote error text is
 not exposed in these errors.
 No live Windows service target has been validated for this release; see
 [VERIFICATION.md](VERIFICATION.md) for the offline claim owner and live boundary.
@@ -561,7 +562,7 @@ Artifact storage is independent of deployment. Build an archive, publish that on
 file to an already accessible filesystem or Nexus raw hosted repository, and record
 the returned `ArtifactInfo.sha256` in trusted release metadata. A deployment agent
 retrieves the file with that expected digest, then uses a separate target-specific
-copy/deployment operation. Conductor does not copy directly from storage to a
+copy/deployment operation. Maestro does not copy directly from storage to a
 Windows/Linux target, unpack archives, mirror directories, or orchestrate a release.
 
 | Method | Contract |
@@ -580,7 +581,7 @@ destination-parent directories must exist; the caller creates them:
 
 ```python
 from pathlib import Path
-from conductor.artifacts import FilesystemArtifacts
+from maestro.artifacts import FilesystemArtifacts
 
 root = Path("/mnt/approved-artifacts")  # Existing accessible mount/root.
 (root / "releases/1.2.0").mkdir(parents=True, exist_ok=True)
@@ -627,14 +628,14 @@ approved secret source:
 
 ```python
 from pathlib import Path
-from conductor.artifacts import NexusRawArtifacts, NexusRawConfig
+from maestro.artifacts import NexusRawArtifacts, NexusRawConfig
 
 config = NexusRawConfig(
     base_url="https://nexus.example.net/nexus",
     repository="raw-release",
     username=nexus_username,
     password=nexus_password,
-    ca_bundle="/etc/conductor/nexus-ca.pem",  # Omit when system trust is sufficient.
+    ca_bundle="/etc/maestro/nexus-ca.pem",  # Omit when system trust is sufficient.
 )
 key = "releases/1.2.0/widget.zip"
 
@@ -650,7 +651,7 @@ config = NexusRawConfig(
     repository="raw-release",
     username=nexus_username,
     password=nexus_password,
-    ca_bundle="/etc/conductor/nexus-ca.pem",
+    ca_bundle="/etc/maestro/nexus-ca.pem",
 )
 key = trusted_release_record.key
 release_sha256 = trusted_release_record.sha256  # Supplied by the consumer.
@@ -692,7 +693,7 @@ Filesystem failures include `ArtifactFileError`, `ArtifactIntegrityError`, and t
 shared `PermissionDeniedError` for native access denial. Nexus also maps shared
 `AuthenticationError`, `PermissionDeniedError`, `ConflictError`, `TransportError`/
 `TransportTimeoutError`, and `HttpResponseError`/`RateLimitError` categories from
-`conductor.common.errors`.
+`maestro.common.errors`.
 Error text and representations do not expose artifact payloads or credentials.
 No live SMB/NFS share or Nexus server has been validated; see
 [VERIFICATION.md](VERIFICATION.md) for evidence owners and boundaries.
@@ -723,7 +724,7 @@ uv sync --extra iis --extra windows --extra nexus --extra openbao \
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy
-uv run pytest --cov=conductor
+uv run pytest --cov=maestro
 uv run python -m build --no-isolation
 ```
 
@@ -734,6 +735,42 @@ pypsrp or HTTPX.
 Unit tests block network connections; HTTP adapter tests use real HTTPX with
 `MockTransport`. No CLI, pipeline service, Windows host, mounted SMB/NFS share, or
 network target is required.
+
+### Hosted CI
+
+Both GitHub Actions and Azure Pipelines are configured for offline checks on Ubuntu
+24.04 with Python 3.11 and 3.14. Each uses uv 0.12.15 and a locked environment with the
+`iis`, `windows`, `nexus`, `openbao`, `azure-devops`, `argocd`, `sonarqube`, and
+`linux` extras; native Kerberos is not installed. CI runs Ruff lint and format
+checks, mypy, the offline unit/adapter/packaging tests with a 95% coverage floor
+and builds a wheel and sdist. JUnit XML
+is written to `test-results/junit.xml`, coverage XML to `coverage.xml`, and the
+built distributions to `dist/`.
+
+These outputs are internal CI run artifacts, not Python-feed publication. Ordinary
+CI needs no secrets, live-test flags, AWS access, publishing, or deployment
+permissions; AWS and live SSH/WinRM tests remain separate approved manual future
+work. The workflows do not change the library's runtime feature limits. No hosted
+run is claimed here.
+
+GitHub CI runs on pushes to `main` and pull requests targeting `main`. Initial
+activation requires committing and pushing the workflow and namespace changes on a
+feature branch and opening a PR to `main`; a push to that feature branch alone does
+not trigger either event. Manual `workflow_dispatch` runs are available only after
+the workflow is present on the default branch. Local or uncommitted workflow files
+are not active. After the first runs, use the actual emitted check names if
+configuring required checks on `main`; the branch is not claimed to be protected
+already.
+
+To connect Azure Pipelines, use Azure DevOps Services and its hosted Ubuntu 24.04
+agents. Open **Pipelines > New pipeline > GitHub**, then have a repository
+owner/admin authorize the Azure Pipelines GitHub App or service connection for only
+`SerhatBasesgioglu/maestro` and this pipeline. Select the existing
+`.azure-pipelines/ci.yml` from the feature branch or, after merge, from the default
+branch. An Azure DevOps organization/project and this repository authorization are
+required; registration is pending, and no Azure hosted run is claimed. No Git mirror
+is needed. Azure YAML PR triggers work with GitHub. If the YAML is instead used
+with Azure Repos, configure PR build validation as a branch policy.
 
 Live IIS tests are opt-in, use Kerberos, and require an explicitly confirmed disposable
 pool on a non-production target. The HTTPS example is:

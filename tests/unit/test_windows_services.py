@@ -4,15 +4,15 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from conductor.common.errors import (
+from maestro.common.errors import (
     AuthenticationError,
     ConfigurationError,
     PermissionDeniedError,
     TransportError,
     TransportTimeoutError,
 )
-from conductor.transports import PowerShellError, PowerShellErrorCategory, PowerShellResult
-from conductor.windows import (
+from maestro.transports import PowerShellError, PowerShellErrorCategory, PowerShellResult
+from maestro.windows import (
     ServiceChangeResult,
     ServiceCommandError,
     ServiceDependencyError,
@@ -23,7 +23,7 @@ from conductor.windows import (
     ServiceStateError,
     WindowsClient,
 )
-from conductor.windows._scripts import WINDOWS_SERVICE
+from maestro.windows._scripts import WINDOWS_SERVICE
 
 S = ServiceState
 
@@ -113,7 +113,7 @@ def test_invalid_state_marker_is_translated_without_replay(method, operation):
             errors=(
                 PowerShellError(
                     PowerShellErrorCategory.COMMAND_FAILED,
-                    "Conductor.WindowsServiceInvalidState,Write-Error",
+                    "Maestro.WindowsServiceInvalidState,Write-Error",
                 ),
             )
         )
@@ -178,39 +178,39 @@ def test_invalid_names_fail_before_remote_io(name, method):
     [
         (
             PowerShellErrorCategory.OBJECT_NOT_FOUND,
-            "Conductor.WindowsServiceNotFound,Write-Error",
+            "Maestro.WindowsServiceNotFound,Write-Error",
             ServiceNotFoundError,
         ),
         (
             PowerShellErrorCategory.COMMAND_FAILED,
-            "Conductor.WindowsServiceDependentServices,Write-Error",
+            "Maestro.WindowsServiceDependentServices,Write-Error",
             ServiceDependencyError,
         ),
         (
             PowerShellErrorCategory.COMMAND_FAILED,
-            "Conductor.WindowsServiceDisabled,Write-Error",
+            "Maestro.WindowsServiceDisabled,Write-Error",
             ServiceDisabledError,
         ),
         (
             PowerShellErrorCategory.COMMAND_FAILED,
-            "Conductor.WindowsServiceDenied,Write-Error",
+            "Maestro.WindowsServiceDenied,Write-Error",
             PermissionDeniedError,
         ),
         (
             PowerShellErrorCategory.COMMAND_FAILED,
-            "Conductor.WindowsServiceInvalidState,Write-Error",
+            "Maestro.WindowsServiceInvalidState,Write-Error",
             ServiceStateError,
         ),
         (PowerShellErrorCategory.OBJECT_NOT_FOUND, "Other.ObjectNotFound", ServiceCommandError),
         (PowerShellErrorCategory.COMMAND_FAILED, "Other.Command", ServiceCommandError),
         (
             PowerShellErrorCategory.PERMISSION_DENIED,
-            "Conductor.WindowsServiceNotFound,Write-Error",
+            "Maestro.WindowsServiceNotFound,Write-Error",
             PermissionDeniedError,
         ),
         (
             PowerShellErrorCategory.AUTHENTICATION,
-            "Conductor.WindowsServiceNotFound,Write-Error",
+            "Maestro.WindowsServiceNotFound,Write-Error",
             AuthenticationError,
         ),
     ],
@@ -345,7 +345,7 @@ def test_script_uses_exact_service_name_and_native_target_only_stop():
     assert "$controller.Dispose()" in WINDOWS_SERVICE
 
     helper = WINDOWS_SERVICE.split("$nativeStopSource = @'\n", 1)[1].split("\n'@", 1)[0]
-    assert "Conductor.Windows.RemoteHelpers.V1.NativeServiceStop" in WINDOWS_SERVICE
+    assert "Maestro.Windows.RemoteHelpers.V1.NativeServiceStop" in WINDOWS_SERVICE
     assert "if ($null -eq ($nativeStopTypeName -as [type]))" in WINDOWS_SERVICE
     assert "[StructLayout(LayoutKind.Sequential)]" in helper
     assert helper.count("public uint ") == 7

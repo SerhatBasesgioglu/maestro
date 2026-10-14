@@ -6,8 +6,8 @@ import traceback
 import httpx
 import pytest
 
-import conductor.common.http as http_module
-from conductor.common.errors import (
+import maestro.common.http as http_module
+from maestro.common.errors import (
     AuthenticationError,
     ConfigurationError,
     ConflictError,
@@ -19,8 +19,8 @@ from conductor.common.errors import (
     ResourceNotFoundError,
     TransportError,
 )
-from conductor.common.http import HttpResponse
-from conductor.openbao import KvV2Metadata, KvV2Secret, OpenBaoClient, OpenBaoConfig
+from maestro.common.http import HttpResponse
+from maestro.openbao import KvV2Metadata, KvV2Secret, OpenBaoClient, OpenBaoConfig
 
 _SECRET = "secret-value-marker"
 _SECRET_KEY = "secret-key-marker"
@@ -395,7 +395,7 @@ def test_missing_http_extra_has_actionable_openbao_hint(monkeypatch):
     real_import = builtins.__import__
 
     def no_httpx(name, *args, **kwargs):
-        if name == "conductor.common._httpx":
+        if name == "maestro.common._httpx":
             raise ImportError(_SECRET)
         return real_import(name, *args, **kwargs)
 
@@ -404,7 +404,7 @@ def test_missing_http_extra_has_actionable_openbao_hint(monkeypatch):
     with pytest.raises(MissingDependencyError) as failure:
         client.kv_v2.read("kv", "secret")
     rendered = "".join(traceback.format_exception(failure.value))
-    assert "conductor[openbao]" in str(failure.value)
+    assert "maestro[openbao]" in str(failure.value)
     assert _SECRET not in rendered and _TOKEN not in rendered
 
 

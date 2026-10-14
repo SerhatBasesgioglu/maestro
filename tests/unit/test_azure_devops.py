@@ -2,7 +2,7 @@ import base64
 
 import pytest
 
-from conductor.azure_devops import (
+from maestro.azure_devops import (
     AzureDevOpsClient,
     AzureDevOpsConfig,
     BranchConflictError,
@@ -15,7 +15,7 @@ from conductor.azure_devops import (
     PipelineVariable,
     PullRequestStatus,
 )
-from conductor.common.errors import (
+from maestro.common.errors import (
     ConfigurationError,
     ConflictError,
     PermissionDeniedError,
