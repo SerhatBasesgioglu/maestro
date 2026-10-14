@@ -1,4 +1,4 @@
-"""Explicit, HTTPS-only PowerShell remoting with lazy optional dependencies."""
+"""Explicit HTTP(S) PowerShell remoting with lazy optional dependencies."""
 
 import logging
 import re
@@ -28,7 +28,7 @@ class PowerShellRemotingConfig:
 
     Kerberos uses the caller's existing Windows/domain identity when credentials
     are omitted. ``negotiate`` may fall back to NTLM. NTLM requires credentials.
-    TLS verification cannot be disabled; ``ca_bundle`` supplies trusted PEM CAs.
+    HTTPS verification cannot be disabled; ``ca_bundle`` supplies trusted PEM CAs.
     """
 
     endpoint: str
@@ -43,7 +43,7 @@ class PowerShellRemotingConfig:
     cleanup_timeout: float = 5.0
 
     def __post_init__(self) -> None:
-        _parse_endpoint(self.endpoint)
+        _, _, _, use_tls = _parse_endpoint(self.endpoint)
         if self.auth not in ("kerberos", "negotiate", "ntlm"):
             raise ConfigurationError("auth must be kerberos, negotiate, or ntlm.")
         for credential in (self.username, self.password):
@@ -58,6 +58,8 @@ class PowerShellRemotingConfig:
         ):
             raise ConfigurationError("configuration_name must be a simple endpoint name.")
         if self.ca_bundle is not None:
+            if not use_tls:
+                raise ConfigurationError("ca_bundle is only supported for HTTPS endpoints.")
             if not isinstance(self.ca_bundle, (str, Path)) or not self.ca_bundle:
                 raise ConfigurationError("ca_bundle must name a readable PEM CA file.")
             try:
@@ -70,16 +72,18 @@ class PowerShellRemotingConfig:
             object.__setattr__(self, name, positive_seconds(getattr(self, name), name))
 
 
-def _parse_endpoint(endpoint: str) -> tuple[str, int, str]:
-    message = "endpoint must be an explicit HTTPS URL with a host and remoting path."
+def _parse_endpoint(endpoint: str) -> tuple[str, int, str, bool]:
+    message = "endpoint must be an explicit HTTP or HTTPS URL with a host and remoting path."
     if not isinstance(endpoint, str) or any(char.isspace() or ord(char) < 32 for char in endpoint):
         raise ConfigurationError(message)
     try:
         parsed = urlsplit(endpoint)
-        port = parsed.port if parsed.port is not None else 443
+        if parsed.scheme not in ("http", "https"):
+            raise ConfigurationError(message)
+        use_tls = parsed.scheme == "https"
+        port = parsed.port if parsed.port is not None else (443 if use_tls else 5985)
         if (
-            parsed.scheme != "https"
-            or not parsed.hostname
+            not parsed.hostname
             or parsed.username is not None
             or parsed.password is not None
             or "?" in endpoint
@@ -90,7 +94,7 @@ def _parse_endpoint(endpoint: str) -> tuple[str, int, str]:
             raise ConfigurationError(message)
     except ValueError:
         raise ConfigurationError(message) from None
-    return parsed.hostname, port, parsed.path[1:]
+    return parsed.hostname, port, parsed.path[1:], use_tls
 
 
 class _Session(Protocol):

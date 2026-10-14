@@ -25,6 +25,7 @@ from conductor.transports import PowerShellErrorCategory as C
 from conductor.transports import PowerShellRemotingConfig
 
 ENDPOINT = "https://iis-test.company.local:5986/wsman"
+HTTP_ENDPOINT = "http://iis-test.company.local:5985/wsman"
 
 
 class Clock:
@@ -66,6 +67,7 @@ def test_wsman_configuration_is_secure_and_preserves_explicit_target(monkeypatch
     assert captured["path"] == "wsman"
     assert captured["ssl"] is True
     assert captured["auth"] == "kerberos"
+    assert captured["encryption"] == "auto"
     assert captured["username"] is captured["password"] is None
     assert captured["cert_validation"] == str(ca)
     assert captured["reconnection_retries"] == 0
@@ -74,9 +76,48 @@ def test_wsman_configuration_is_secure_and_preserves_explicit_target(monkeypatch
     assert captured["no_proxy"] is True
 
 
+@pytest.mark.parametrize("auth", ["kerberos", "negotiate", "ntlm"])
+def test_http_wsman_configuration_is_explicit_and_keeps_encryption(monkeypatch, auth):
+    captured = {}
+
+    def init(self, **kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(adapter.WSMan, "__init__", init)
+    credentials = {"username": "test-user", "password": "test-password"} if auth == "ntlm" else {}
+    adapter._DeadlineWSMan(
+        PowerShellRemotingConfig(endpoint=HTTP_ENDPOINT, auth=auth, **credentials)
+    )
+    assert captured["server"] == "iis-test.company.local"
+    assert captured["port"] == 5985
+    assert captured["path"] == "wsman"
+    assert captured["ssl"] is False
+    assert captured["auth"] == auth
+    assert captured["encryption"] == "auto"
+    assert captured["cert_validation"] is True
+    assert captured["reconnection_retries"] == 0
+    assert captured["no_proxy"] is True
+    assert captured["negotiate_delegate"] is False
+
+
+@pytest.mark.parametrize("auth", ["kerberos", "negotiate", "ntlm"])
+def test_real_sdk_http_transport_uses_endpoint_and_requires_message_wrapping(auth):
+    credentials = {"username": "test-user", "password": "test-password"} if auth == "ntlm" else {}
+    connection = adapter._DeadlineWSMan(
+        PowerShellRemotingConfig(endpoint=HTTP_ENDPOINT, auth=auth, **credentials)
+    )
+    assert connection.transport.endpoint == "http://iis-test.company.local:5985/wsman"
+    assert connection.transport.ssl is False
+    assert connection.transport.auth == auth
+    assert connection.transport.wrap_required is True
+    connection.close()
+
+
 def test_tls_verification_is_on_by_default():
     connection = adapter._DeadlineWSMan(PowerShellRemotingConfig(endpoint=ENDPOINT))
     assert connection.transport.cert_validation is True
+    assert connection.transport.ssl is True
+    assert connection.transport.wrap_required is False
     connection.close()
 
 

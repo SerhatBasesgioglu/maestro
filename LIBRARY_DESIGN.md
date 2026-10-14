@@ -172,9 +172,10 @@ expected previous commit. Do not expose SDK response objects as the public
 compatibility promise.
 
 **Chosen contract:** Python 3.11+, synchronous APIs only. Async consumers offload
-blocking work. IIS target deployment setup: a Windows domain-connected agent using
-Kerberos and trusted HTTPS. Specific identity, DNS/SPNs, certificate trust,
-permissions, server versions, and endpoint restrictions still require live checks.
+blocking work. The normal IIS deployment topology is a Windows domain-connected
+agent using Kerberos and trusted HTTPS; explicit WinRM HTTP/5985 is also supported
+for approved use. Specific identity, DNS/SPNs, certificate trust, permissions,
+server versions, and endpoint restrictions still require live checks.
 
 ## Configuration and safety
 
@@ -186,13 +187,18 @@ permissions, server versions, and endpoint restrictions still require live check
 - Keep credential values out of logs, representations, and operational errors.
   Conductor drops raw remote error text and invocation details. Third-party
   wire logging and application traceback-local collection remain caller risks.
-- Verify TLS; allow a caller-supplied trusted CA bundle, never an insecure bypass.
+- HTTP/API clients require TLS verification. WinRM accepts explicitly selected
+  HTTPS or HTTP/5985; HTTPS can use a caller-supplied trusted CA bundle, while
+  `ca_bundle` is rejected for HTTP. With pypsrp 0.9.1, HTTP uses
+  `encryption="auto"` WSMan message wrapping, not TLS or certificate-backed server
+  identity. No TLS verification bypass is provided for HTTPS clients.
 - Use normal named library logging without root-logger configuration or handlers.
 - Validate finite positive request/command/poll/cleanup budgets. Deadline checks
   are cooperative at SDK boundaries, not guaranteed hard cancellation.
 - Do not blindly replay writes or retry authentication/permission failures. The
-  remoting transport disables HTTP replays and invalidates failed sessions. The
-  shared HTTP transport does not follow redirects, retry, or use environment proxies.
+  remoting transport disables HTTP request replays and invalidates failed sessions.
+  Separately, the shared HTTPX transport for API clients does not follow redirects,
+  retry, or use environment proxies.
 - Prefer idempotent state-setting methods, recheck state remotely, and use
   concurrency controls where a platform supports them. IIS has no pool-state CAS;
   consumers must serialize deployments and handle uncertain mutation outcomes.
@@ -284,8 +290,10 @@ applied. `ControlService` may block while the service handles its control; the
 transport deadline is not hard cancellation. One remote mutation call and no
 library polling do not imply that the native call cannot wait. A Windows PowerShell
 5.1+ full-language endpoint supporting `Add-Type`, .NET, and native SCM invocation,
-trusted HTTPS/authentication, and suitable service management rights are
-prerequisites. Constrained Language Mode/JEA is not compatible by endpoint selection
+trusted HTTPS or explicitly selected HTTP/5985 with the existing authentication
+options, and suitable service management rights are prerequisites. HTTPS certificate
+verification is unchanged; HTTP message wrapping does not provide TLS server
+identity. Constrained Language Mode/JEA is not compatible by endpoint selection
 alone.
 
 ## Independent artifact storage APIs
@@ -338,7 +346,8 @@ separate target-owner validation boundary.
 ```text
 Machine 1: on-premises Windows pipeline agent
     installs/calls Conductor
-    -> PowerShell Remoting / WinRM over trusted HTTPS with Kerberos
+    -> PowerShell Remoting / WinRM over HTTPS with Kerberos, or explicit HTTP/5985
+       with WSMan message wrapping and an existing supported authentication mode
 Machine 2: Windows IIS server
     executes IIS commands; no Python or Conductor installation required
 ```
@@ -365,8 +374,12 @@ Conductor never invokes local PowerShell as a remote fallback.
 
 Prefer Kerberos for the confirmed domain topology; integrated authentication
 still depends on the actual agent service identity and correct setup. Secrets,
-if used, come from the consumer. No wildcard trusted hosts, unencrypted auth,
-TLS-verification bypass, or credential delegation is provided.
+if used, come from the consumer. No wildcard trusted hosts, HTTPS
+certificate-verification bypass, or credential delegation is provided. HTTP/5985
+is explicit rather than a fallback from HTTPS; it uses pypsrp 0.9.1 message
+wrapping but is not TLS and does not provide TLS certificate-backed server identity.
+`ca_bundle` applies only to HTTPS. Existing Kerberos, Negotiate, and NTLM
+authentication remain available; NTLM requires caller-supplied username/password.
 
 Consider JEA with approved pool names and operations, but do not equate selecting
 an endpoint with JEA compatibility. Standard NoLanguage JEA endpoints cannot
@@ -422,24 +435,28 @@ Packaging tests build a wheel/sdist and install without optional dependencies in
 a clean environment, including Windows public imports and a fake service read,
 plus artifact filesystem/Nexus and OpenBao imports with no-SDK fake operations.
 Adapter tests use the installed optional SDK but intercept remote calls. Live tests
-are opt-in, require an explicit HTTPS endpoint and confirmed disposable pool, and
-attempt restoration of its initial stable state. Separate explicitly approved HTTP
-live smoke tests perform reads only. Real HTTPX request construction is tested with
-MockTransport and sockets are blocked in unit tests; base-wheel fake operations run
+are opt-in, require an explicit HTTPS or HTTP/5985 endpoint and confirmed disposable
+pool, and attempt restoration of its initial stable state. `ca_bundle` is HTTPS-only.
+Separate explicitly approved HTTP live smoke tests perform reads only. Real HTTPX
+request construction is tested with MockTransport and sockets are blocked in unit
+tests; base-wheel fake operations run
 without any integration SDK. The Windows SCM behavior and real remoting/authentication
 still require a separately approved target; no live Windows service target is claimed.
 
-Offline tests cannot establish real Kerberos, certificate trust, permissions,
-IIS/Windows service/API server compatibility, JEA/RBAC restrictions, mounted
-SMB/NFS semantics, Nexus repository policy, OpenBao authentication/TLS/namespace/RBAC
-semantics, mutation/concurrency behavior, or reliable remote cancellation.
+Offline tests cannot establish real Kerberos, HTTPS certificate trust, HTTP server
+identity, permissions, IIS/Windows service/API server compatibility, JEA/RBAC
+restrictions, mounted SMB/NFS semantics, Nexus repository policy, OpenBao
+authentication/TLS/namespace/RBAC semantics, mutation/concurrency behavior, or
+reliable remote cancellation.
 See VERIFICATION.md for the claim owners and evidence boundaries.
 
 ## Sequence and remaining decisions
 
 1. **Chosen:** Python 3.11+ and synchronous APIs.
-2. **Chosen topology:** Windows domain agent, Kerberos, trusted HTTPS. Verify the
-   actual agent identity, network, DNS/SPNs, trust, endpoint, and permissions.
+2. **Chosen default topology:** Windows domain agent, Kerberos, and trusted HTTPS;
+   explicitly selected HTTP/5985 is also supported for approved use, with message
+   wrapping but no TLS certificate-backed server identity. Verify the actual agent
+   identity, network, DNS/SPNs, trust where HTTPS is used, endpoint, and permissions.
 3. **Implemented offline:** minimal remoting and IIS pool get/start/stop APIs;
     independent Windows service state/start/stop APIs.
 4. Verify a disposable non-production pool, then add consumer-owned pipeline scripts.

@@ -4,7 +4,9 @@ import pytest
 def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup("remote IIS integration (explicit opt-in)")
     group.addoption("--run-iis-integration", action="store_true", default=False)
-    group.addoption("--iis-endpoint", default=None, help="Approved non-production HTTPS endpoint")
+    group.addoption(
+        "--iis-endpoint", default=None, help="Approved non-production WinRM HTTP(S) endpoint"
+    )
     group.addoption("--iis-pool", default=None, help="Disposable pool to start/stop")
     group.addoption(
         "--iis-confirm-pool", default=None, help="Repeat the pool name to approve mutation"

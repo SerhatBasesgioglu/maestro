@@ -14,6 +14,7 @@ from conductor.common.errors import (
 from conductor.transports import PowerShellRemoting, PowerShellRemotingConfig, PowerShellResult
 
 ENDPOINT = "https://iis-test.company.local:5986/wsman"
+HTTP_ENDPOINT = "http://iis-test.company.local:5985/wsman"
 
 
 class FakeSession:
@@ -81,9 +82,10 @@ def test_failed_open_cleans_resources_and_remains_closed(session):
     assert session.opens == session.closes == 1
 
 
-def test_execution_failure_invalidates_session_without_retry(session):
+@pytest.mark.parametrize("endpoint", [ENDPOINT, HTTP_ENDPOINT])
+def test_execution_failure_invalidates_session_without_retry(session, endpoint):
     session.execute_error = TransportError("safe failure")
-    transport = PowerShellRemoting(endpoint=ENDPOINT)
+    transport = PowerShellRemoting(endpoint=endpoint)
     transport.open()
     with pytest.raises(TransportError, match="safe failure"):
         transport.execute("'hello'")
@@ -190,7 +192,16 @@ def test_invalid_parameters_fail_before_dispatch(session, parameters):
     [
         "",
         "iis.company.local",
-        "http://iis.company.local:5985/wsman",
+        "http://iis.company.local",
+        "http:///wsman",
+        "http://iis.company.local/",
+        "http://iis.company.local:0/wsman",
+        "http://iis.company.local:65536/wsman",
+        "http://iis.company.local:bad/wsman",
+        "http://user:super-secret@iis.company.local/wsman",
+        "http://iis.company.local/wsman?secret=super-secret",
+        "http://iis.company.local/wsman#super-secret",
+        "ftp://iis.company.local/wsman",
         "https:///wsman",
         "https://iis.company.local",
         "https://iis.company.local/",
@@ -213,18 +224,59 @@ def test_invalid_endpoints_do_not_echo_caller_data(endpoint):
 
 
 def test_endpoint_parse_preserves_url_semantics():
-    assert remoting._parse_endpoint(ENDPOINT) == ("iis-test.company.local", 5986, "wsman")
+    assert remoting._parse_endpoint(ENDPOINT) == (
+        "iis-test.company.local",
+        5986,
+        "wsman",
+        True,
+    )
     assert remoting._parse_endpoint("https://iis.company.local/wsman") == (
         "iis.company.local",
         443,
         "wsman",
+        True,
     )
-    assert remoting._parse_endpoint("https://[::1]:5986/wsman") == ("::1", 5986, "wsman")
+    assert remoting._parse_endpoint("https://[::1]:5986/wsman") == (
+        "::1",
+        5986,
+        "wsman",
+        True,
+    )
     assert remoting._parse_endpoint("https://iis.company.local//wsman") == (
         "iis.company.local",
         443,
         "/wsman",
+        True,
     )
+
+
+@pytest.mark.parametrize(
+    "endpoint,expected",
+    [
+        (HTTP_ENDPOINT, ("iis-test.company.local", 5985, "wsman", False)),
+        (
+            "http://iis.company.local/wsman",
+            ("iis.company.local", 5985, "wsman", False),
+        ),
+        (
+            "http://iis.company.local:8080/custom/path",
+            ("iis.company.local", 8080, "custom/path", False),
+        ),
+        ("http://[::1]/wsman", ("::1", 5985, "wsman", False)),
+        ("http://iis.company.local//wsman", ("iis.company.local", 5985, "/wsman", False)),
+    ],
+)
+def test_http_endpoint_parse_preserves_port_path_and_ipv6(endpoint, expected):
+    assert remoting._parse_endpoint(endpoint) == expected
+
+
+def test_http_config_construction_from_config_and_lazy_open():
+    config = PowerShellRemotingConfig(endpoint=HTTP_ENDPOINT)
+    transport = PowerShellRemoting.from_config(config)
+    assert transport.config == config
+    assert transport.config.endpoint == HTTP_ENDPOINT
+    assert not transport.is_open
+    assert not PowerShellRemoting(endpoint="http://iis.company.local/wsman").is_open
 
 
 @pytest.mark.parametrize("auth", ["basic", "credssp", "certificate", "super-secret", None])
@@ -270,6 +322,13 @@ def test_explicit_ca_bundle_must_be_a_file(tmp_path):
     for invalid in (False, True, "", tmp_path, tmp_path / "missing.pem"):
         with pytest.raises(ConfigurationError):
             PowerShellRemoting(endpoint=ENDPOINT, ca_bundle=invalid)
+
+
+def test_ca_bundle_is_rejected_for_http_with_clear_configuration_error(tmp_path):
+    ca = tmp_path / "ca.pem"
+    ca.write_text("test certificate placeholder")
+    with pytest.raises(ConfigurationError, match="only supported for HTTPS"):
+        PowerShellRemoting(endpoint=HTTP_ENDPOINT, ca_bundle=ca)
 
 
 @pytest.mark.parametrize(

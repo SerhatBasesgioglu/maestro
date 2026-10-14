@@ -47,18 +47,21 @@ class _DeadlineWSMan(WSMan):
     def __init__(self, config: PowerShellRemotingConfig) -> None:
         self._config = config
         self._deadline: float | None = None
-        host, port, path = _parse_endpoint(config.endpoint)
+        host, port, path, use_tls = _parse_endpoint(config.endpoint)
         super().__init__(
             server=host,
             port=port,
             path=path,
-            ssl=True,
+            ssl=use_tls,
             auth=config.auth,
             username=config.username,
             password=config.password,
             # SDK annotations omit its documented CA-path support and the
             # fractional timeouts accepted by requests underneath it.
             cert_validation=str(config.ca_bundle) if config.ca_bundle is not None else True,  # type: ignore[arg-type]
+            # Explicit auto preserves HTTPS defaults and wraps HTTP messages for
+            # the supported Kerberos, Negotiate, and NTLM authentication modes.
+            encryption="auto",
             connection_timeout=config.connection_timeout,  # type: ignore[arg-type]
             read_timeout=config.request_timeout,  # type: ignore[arg-type]
             operation_timeout=1,

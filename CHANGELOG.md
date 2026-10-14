@@ -3,8 +3,10 @@
 ## 0.1.0 — Unreleased
 
 - Initial synchronous Python 3.11+ library with a dependency-free base package.
-- Optional HTTPS/Kerberos PowerShell remoting with explicit connection ownership,
-  trusted CA support, deadline checks, and no automatic HTTP request replays.
+- Optional PowerShell remoting over HTTPS or explicit HTTP/5985, retaining
+  Kerberos/Negotiate/NTLM authentication; HTTPS-only CA support and pypsrp 0.9.1
+  message wrapping over HTTP (not TLS), with explicit ownership, deadline checks,
+  and no automatic scheme fallback or HTTP request replays.
 - Remote IIS application-pool state/start/stop, typed states/results, bounded
   polling, deliberate transition handling, and distinguishable failures.
 - Fake-transport/SDK unit tests, isolated packaging tests, and opt-in disposable

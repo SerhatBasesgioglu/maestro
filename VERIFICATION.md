@@ -8,7 +8,33 @@ The highest-risk boundary is an uncertain remote mutation: success or failure of
 the local request does not alone prove the final remote state, completed pipeline,
 or successful deployment. Kubernetes/workflows remain outside this release.
 
+## WinRM HTTP/5985 offline validation — 2026-10-14
+
+- macOS 26.5.1 arm64, Python 3.11.15, pypsrp 0.9.1. `uv run --no-sync pytest
+  --cov=conductor`: **907 passed, 7 skipped**, **96%** statement/branch coverage.
+  Skips: three gated HTTP-client live tests, one gated IIS live test, two Windows-only
+  filesystem rename cases, and one Linux-only xattr case. All live gates remained off.
+- `uv run --no-sync pytest tests/unit/test_ssh.py tests/unit/test_remoting.py
+  tests/unit/test_pypsrp_adapter.py -q`: **195 passed**. Endpoint tests cover explicit and
+  omitted HTTP ports (5985), custom HTTP ports, and HTTPS port behavior (5986/443);
+  HTTP `ca_bundle` rejection is checked. Adapter tests assert HTTP `ssl=False` and
+  `encryption="auto"`; the installed pypsrp 0.9.1 SDK object reports
+  `wrap_required=True`. HTTPS assertions retain `ssl=True`, certificate validation,
+  and no message wrapping. These are offline parser/configuration/SDK assertions,
+  not HTTP wire or server-compatibility evidence.
+- `uv run --no-sync ruff check .` passed; `uv run --no-sync ruff format --check .`
+  found 94 files already formatted; `uv run --no-sync mypy` found no issues in 70
+  source files. `uv run --no-sync python -m build --no-isolation` built the 0.1.0
+  sdist and wheel successfully.
+- No live WinRM/SSH credentials or hosts were used; live gates remained off. This run
+  does not establish remote HTTP wrapping on a server, TLS handshakes, endpoint/server
+  compatibility, or production readiness. The earlier combined baseline below is
+  retained as evidence from before this feature.
+
 ## Combined offline validation — 2026-10-14
+
+This recorded baseline is from `d03ff52`, before explicit WinRM HTTP/5985 support;
+it is not verification evidence for that addition.
 
 - macOS Darwin 25.5 arm64, Python 3.11.15: **884 passed, 7 skipped**, **96%**
   Python statement/branch coverage. Skips: three gated live HTTP tests, one gated
@@ -139,8 +165,8 @@ These results establish the offline contracts below, not production readiness.
 | OpenBao KV v2 reads preserve explicit targets, token/namespace/version inputs, validate secret envelopes, and hide secret data from representations/errors | Unit suite: `tests/unit/test_openbao.py` | Captured requests, HTTPX MockTransport, schema/status cases, secret-marker and lifecycle checks | Does not establish live token permissions, namespace support, TLS, or server compatibility |
 | Remote file edits refuse unsafe layouts/conflicts and replace without partial in-place writes | Unit suite: `test_compose_file_helper.py` | Actual helper execution on temporary files, fingerprint conflicts, lock contention, metadata and unsafe-file cases | Non-Linux POSIX tests shim absent xattr APIs; Linux ACL/SELinux/xattrs and unrelated concurrent writers require separate evidence |
 | Distribution builds and base imports/fake operations need no SDK or target | Packaging suite: `tests/packaging/test_distribution.py` | Offline wheel/sdist build and no-dependency install in an isolated venv, including Windows imports and filesystem/Nexus/OpenBao fake operations | Extra resolution, mounted filesystems, and server authentication require separate checks |
-| Actual Kerberos, IIS management, and initial-state restoration work | Target owner: opt-in integration suite | Approved non-production HTTPS endpoint and confirmed disposable pool | Agent loss/transport failures can defeat restoration |
-| Windows remoting, service permissions, and native service/dependency behavior work on a target | Windows target owner | Approved non-production target on Windows PowerShell 5.1+, trusted HTTPS/authentication, and a disposable service | No live Windows service target has been contacted; fakes and packaging checks are not live evidence |
+| Actual Kerberos, IIS management, and initial-state restoration work | Target owner: opt-in integration suite | Approved non-production HTTPS or explicitly selected HTTP/5985 endpoint and confirmed disposable pool | Agent loss/transport failures can defeat restoration |
+| Windows remoting, service permissions, and native service/dependency behavior work on a target | Windows target owner | Approved non-production target on Windows PowerShell 5.1+, HTTPS or explicitly selected HTTP/5985 with existing authentication, and a disposable service | No live Windows service target has been contacted; fakes and packaging checks are not live evidence |
 | Mounted filesystem behavior and Nexus raw-hosted policy/authentication work on targets | Storage/registry target owners | Explicit approved SMB/NFS access path or non-production Nexus raw hosted repository over trusted HTTPS | No SMB/NFS share or Nexus server behavior is established by local or fake tests |
 | HTTP clients can read actual API targets | Target owners: `test_http_clients.py` | Explicit secret config file, non-production confirmation, approved repo/application/project | Read-only smoke checks do not exercise CAS pushes, PR/pipeline creation, sync completion, or negative TLS/RBAC cases |
 | Certificates, denied access, endpoint restrictions, and server versions meet deployment policy | Deployment/security owners | Positive and negative live checks with approved identities/certificates | Not established by a mocked request or a happy-path pool test |
@@ -209,14 +235,17 @@ Windows service verification.
 
 No live Windows service target has been contacted. Before deployment, a target owner
 must separately approve a non-production Windows PowerShell 5.1+ target, establish
-the caller's real authentication, trusted HTTPS, endpoint policy, and management
-rights, and verify service-name targeting, disabled/active-dependent behavior,
-state transitions, native stop handling, and uncertain mutation outcomes against a
-disposable service. The endpoint must support full-language execution, `Add-Type`,
-.NET, and native SCM invocation; constrained language/JEA is not compatible by
-selection alone. `ControlService` may block while a service handles its control,
-and cooperative transport timeouts do not guarantee remote cancellation. There is
-no inferred endpoint or default live target.
+the caller's real authentication, an HTTPS or explicitly selected HTTP/5985 endpoint,
+endpoint policy, and management rights, and verify service-name targeting,
+disabled/active-dependent behavior, state transitions, native stop handling, and
+uncertain mutation outcomes against a disposable service. The endpoint must support
+full-language execution, `Add-Type`, .NET, and native SCM invocation; constrained
+language/JEA is not compatible by selection alone. `ControlService` may block while
+a service handles its control, and cooperative transport timeouts do not guarantee
+remote cancellation. There is no inferred endpoint or default live target. HTTPS
+certificate verification is unchanged; HTTP uses pypsrp 0.9.1 WSMan message
+wrapping, not TLS or certificate-backed server identity, and does not accept a CA
+bundle.
 
 ### Windows implementation references (not execution evidence)
 
@@ -273,9 +302,12 @@ uv run pytest tests/integration --run-iis-integration \
   --iis-ca-bundle company-ca.pem
 ```
 
-Run under the intended Windows agent service identity. The CA option is optional
-when the default trust store is sufficient. The pool-confirmation value must
-match the pool exactly, and the target must be explicitly approved as
+For HTTP, substitute `--iis-endpoint http://iis-test.company.local:5985/wsman` and
+omit `--iis-ca-bundle`; HTTP uses message wrapping but has no TLS certificate-backed
+server identity. Run under the intended Windows agent service identity. The CA
+option is optional for HTTPS when the default trust store is sufficient and is
+rejected for HTTP. The pool-confirmation value must match the pool exactly, and the
+target must be explicitly approved as
 non-production. The test exercises start/stop/idempotency, then attempts initial
 stable-state restoration even if assertions fail. It refuses to mutate a pool
 whose initial state is transitional or unknown.

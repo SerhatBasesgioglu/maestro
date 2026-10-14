@@ -352,25 +352,54 @@ with PowerShellRemoting(
 
 This **changes remote pool state**. Caller authorization and deployment approval
 must happen before these calls. No methods execute IIS commands locally or fall
-back to the agent machine. A URL without an explicit port uses HTTPS port 443;
-include `:5986` for a normal WinRM HTTPS endpoint.
+back to the agent machine. Endpoints explicitly select HTTPS or HTTP: an omitted
+HTTPS port defaults to 443, while an omitted HTTP port defaults to 5985. Use an
+explicit `:5986` for a normal WinRM HTTPS endpoint; HTTP/5985 is also supported,
+for example `http://iis02.company.local:5985/wsman`. Conductor does not retry an
+endpoint using another scheme.
+
+For an HTTP/5985 proof of concept, this read-only call uses caller-supplied NTLM
+credentials; populate the variables from an approved secret source:
+
+```python
+from conductor.iis import IisClient
+from conductor.transports import PowerShellRemoting
+
+with PowerShellRemoting(
+    endpoint="http://iis02.company.local:5985/wsman",
+    auth="ntlm",
+    username=winrm_username,
+    password=winrm_password,
+) as transport:
+    iis = IisClient(transport=transport)
+    print(iis.application_pools.get_state("ConductorDisposable"))
+```
+
+The transport uses pypsrp 0.9.1 `encryption="auto"`, which applies WSMan message
+wrapping over HTTP; this is not TLS and provides no TLS certificate-backed server
+identity. HTTP needs no TLS certificate, and `ca_bundle` is HTTPS-only and rejected
+for HTTP. This read-only example does not replace the disposable-pool confirmation
+required for live mutations.
 
 ### Required environment
 
-- Machine 1: Windows domain-connected agent, Python, and Conductor. Kerberos must
-  work for the **actual agent service identity**, not just an interactive user.
+- Machine 1: Windows domain-connected agent, Python, and Conductor. For Kerberos,
+  it must work for the **actual agent service identity**, not just an interactive
+  user.
 - Machine 2: Windows IIS server, Windows PowerShell with `WebAdministration` and
   the IIS provider, and an enabled remoting endpoint.
-- Trusted HTTPS certificate, correct DNS/SPN configuration, and restricted network
-  access from approved agents. Supply a trusted PEM CA bundle if necessary;
-  certificate verification cannot be disabled through this API.
+- Correct DNS/SPN configuration and restricted network access from approved agents.
+  For HTTPS, use a trusted certificate and supply a PEM CA bundle if necessary;
+  certificate verification cannot be disabled. HTTP has no TLS certificate or
+  certificate-backed server identity; use it only where explicitly approved.
 - The caller identity needs remoting access and permission to read/manage the
   intended pools. Python and Conductor are **not** installed on machine 2.
 
-Kerberos is explicit by default. `auth="negotiate"` may fall back to NTLM;
+Kerberos is the default. Existing `auth="negotiate"` may fall back to NTLM;
 `auth="ntlm"` requires a caller-supplied username and password. Obtain credentials
-in the consumer from an approved secret source. Credential delegation is disabled,
-proxies are bypassed, and no third-machine/double-hop access is assumed.
+in the consumer from an approved secret source. No Basic or anonymous mode is
+provided. Credential delegation is disabled, proxies are bypassed, and no
+third-machine/double-hop access is assumed.
 
 `configuration_name` selects the remote PowerShell endpoint. **Selecting a JEA
 endpoint does not by itself make these operations JEA-compatible:** the current
@@ -460,8 +489,8 @@ expose sensitive data.
 
 Windows service management is an independent API over the existing caller-owned
 `PowerShellRemoting` transport; it adds no transport or deployment workflow. Reuse
-the same trusted HTTPS, authentication, and transport-lifecycle rules described
-above for IIS:
+the same endpoint, authentication, and transport-lifecycle rules described above
+for IIS, including its HTTPS/HTTP-specific requirements:
 
 ```python
 from conductor.transports import PowerShellRemoting
@@ -707,7 +736,7 @@ Unit tests block network connections; HTTP adapter tests use real HTTPX with
 network target is required.
 
 Live IIS tests are opt-in, use Kerberos, and require an explicitly confirmed disposable
-pool on a non-production target:
+pool on a non-production target. The HTTPS example is:
 
 ```text
 uv run pytest tests/integration --run-iis-integration \
@@ -716,11 +745,13 @@ uv run pytest tests/integration --run-iis-integration \
   --iis-confirm-pool ConductorDisposable
 ```
 
-Add `--iis-ca-bundle company-ca.pem` for an internal CA. Tests attempt to restore
-the initial stable state. Live authentication, permissions, certificate trust,
-server compatibility, and cancellation behavior still require this environment;
-offline test success is not evidence of those claims. See
-[VERIFICATION.md](VERIFICATION.md) for the evidence boundaries.
+For HTTP, use `--iis-endpoint http://iis-test.company.local:5985/wsman` instead and
+omit `--iis-ca-bundle`; the same opt-in and exact pool confirmation still apply.
+`--iis-ca-bundle` is only for HTTPS. Tests attempt to restore the initial stable
+state. Live authentication, permissions, HTTPS certificate trust (or the lack of
+TLS server identity over HTTP), server compatibility, and cancellation behavior
+still require this environment; offline test success is not evidence of those
+claims. See [VERIFICATION.md](VERIFICATION.md) for the evidence boundaries.
 
 Read-only live checks for the three HTTP clients are separately opt-in:
 
