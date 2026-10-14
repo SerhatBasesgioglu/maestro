@@ -31,28 +31,31 @@ def test_distribution_contains_typed_library_and_optional_only_runtime_dependenc
     wheel, sdist = distribution
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
-        assert "conductor/py.typed" in names
-        assert "conductor/iis/application_pools.py" in names
-        assert "conductor/windows/client.py" in names
-        assert "conductor/windows/services.py" in names
-        assert "conductor/artifacts/filesystem.py" in names
-        assert "conductor/artifacts/transport.py" in names
-        assert "conductor/openbao/client.py" in names
-        assert "conductor/openbao/config.py" in names
-        assert "conductor/openbao/__init__.py" in names
-        assert "conductor/openbao/kv_v2.py" in names
-        assert "conductor/openbao/models.py" in names
+        assert "maestro/py.typed" in names
+        assert "maestro/iis/application_pools.py" in names
+        assert "maestro/windows/client.py" in names
+        assert "maestro/windows/services.py" in names
+        assert "maestro/artifacts/filesystem.py" in names
+        assert "maestro/artifacts/transport.py" in names
+        assert "maestro/openbao/client.py" in names
+        assert "maestro/openbao/config.py" in names
+        assert "maestro/openbao/__init__.py" in names
+        assert "maestro/openbao/kv_v2.py" in names
+        assert "maestro/openbao/models.py" in names
         assert any(
-            name.startswith(("conductor/artifacts/nexus", "conductor/nexus"))
-            and name.endswith(".py")
+            name.startswith(("maestro/artifacts/nexus", "maestro/nexus")) and name.endswith(".py")
             for name in names
         )
         for integration in ("azure_devops", "argocd", "sonarqube", "linux"):
-            assert f"conductor/{integration}/client.py" in names
+            assert f"maestro/{integration}/client.py" in names
+        assert not any(name.startswith("conductor/") for name in names)
+        assert not any(
+            name.lower().startswith("conductor-") and ".dist-info/" in name for name in names
+        )
         assert not any(name.startswith("tests/") for name in names)
         metadata_name = next(name for name in names if name.endswith(".dist-info/METADATA"))
         metadata = email.message_from_bytes(archive.read(metadata_name))
-    assert metadata["Name"] == "conductor"
+    assert metadata["Name"] == "maestro"
     assert metadata["Version"] == "0.1.0"
     assert set(metadata.get_all("Provides-Extra")) == {
         "azure-devops",
@@ -72,6 +75,13 @@ def test_distribution_contains_typed_library_and_optional_only_runtime_dependenc
     )
     with tarfile.open(sdist) as archive:
         names = archive.getnames()
+        pkg_info_name = next(name for name in names if name.endswith("/PKG-INFO"))
+        sdist_metadata = email.message_from_bytes(archive.extractfile(pkg_info_name).read())
+    assert sdist_metadata["Name"] == "maestro"
+    assert sdist_metadata["Version"] == "0.1.0"
+    assert all(Path(name).parts[0].startswith("maestro-") for name in names)
+    assert any(name.endswith("/src/maestro/py.typed") for name in names)
+    assert not any("/src/conductor/" in name for name in names)
     assert any(name.endswith("/LIBRARY_DESIGN.md") for name in names)
     assert any(name.endswith("/tests/unit/test_application_pools.py") for name in names)
     for test_module in (
@@ -119,32 +129,41 @@ from pathlib import Path
 root_handlers = list(logging.getLogger().handlers)
 assert importlib.util.find_spec("pypsrp") is None
 assert importlib.util.find_spec("httpx") is None
-import conductor
-from conductor.argocd import ArgoCdClient, ArgoCdConfig, ApplicationHealth
-from conductor.azure_devops import AzureDevOpsClient, AzureDevOpsConfig
-from conductor.artifacts import (
+assert importlib.util.find_spec("conductor") is None
+try:
+    importlib.metadata.distribution("conductor")
+except importlib.metadata.PackageNotFoundError:
+    pass
+else:
+    raise AssertionError("The legacy conductor distribution must not be installed")
+
+import maestro
+from maestro.argocd import ArgoCdClient, ArgoCdConfig, ApplicationHealth
+from maestro.azure_devops import AzureDevOpsClient, AzureDevOpsConfig
+from maestro.artifacts import (
     ArtifactFileError, ArtifactHttpResponse, ArtifactHttpTransport,
     ArtifactInfo, ArtifactIntegrityError, FilesystemArtifacts,
     HttpxArtifactTransport, NexusRawArtifacts, NexusRawConfig,
 )
-from conductor.common.errors import MissingDependencyError
-from conductor.common.http import HttpResponse
-from conductor.openbao import (
+from maestro.common.errors import MaestroError, MissingDependencyError
+from maestro.common.http import HttpResponse
+from maestro.openbao import (
     KvV2Metadata, KvV2Secret, OpenBaoClient, OpenBaoConfig,
 )
-from conductor.iis import ApplicationPoolState, IisClient
-from conductor.linux import ComposeProject, LinuxClient, ServiceState
-from conductor.sonarqube import SonarQubeClient, SonarQubeConfig, QualityGateStatus
-from conductor.windows import (
+from maestro.iis import ApplicationPoolState, IisClient
+from maestro.linux import ComposeProject, LinuxClient, ServiceState
+from maestro.sonarqube import SonarQubeClient, SonarQubeConfig, QualityGateStatus
+from maestro.windows import (
     ServiceChangeResult, ServiceCommandError, ServiceDependencyError,
     ServiceDisabledError, ServiceNotFoundError, ServiceProtocolError,
     ServiceState as WindowsServiceState, ServiceStateError, WindowsClient,
 )
-from conductor.transports import (
+from maestro.transports import (
     CommandResult, OpenSshTransport, PowerShellRemoting, PowerShellResult,
 )
 
-assert conductor.__version__ == importlib.metadata.version("conductor") == "0.1.0"
+assert maestro.__version__ == importlib.metadata.version("maestro") == "0.1.0"
+assert issubclass(MissingDependencyError, MaestroError)
 assert list(logging.getLogger().handlers) == root_handlers
 assert not any(name == "pypsrp" or name.startswith("pypsrp.") for name in sys.modules)
 assert importlib.util.find_spec("pypsrp") is None
@@ -311,7 +330,7 @@ assert "httpx" not in sys.modules
 try:
     default_openbao.kv_v2.read("secret", "apps/widget", version=2)
 except MissingDependencyError as error:
-    assert "conductor[openbao]" in str(error)
+    assert "maestro[openbao]" in str(error)
 else:
     raise AssertionError("Default OpenBao I/O must require optional HTTPX")
 finally:
@@ -331,7 +350,7 @@ try:
         expected_sha256=nexus_digest,
     )
 except MissingDependencyError as error:
-    assert "conductor[nexus]" in str(error)
+    assert "maestro[nexus]" in str(error)
 else:
     raise AssertionError("Default Nexus I/O must require optional HTTPX")
 finally:
@@ -350,7 +369,7 @@ assert result.changed is False
 
 class FakeWindowsTransport:
     def execute(self, script, *, parameters=None, timeout=None):
-        assert parameters == {"Name": "ConductorDisposable", "Operation": "Get"}
+        assert parameters == {"Name": "MaestroDisposable", "Operation": "Get"}
         return PowerShellResult(
             output=(
                 '{"initial_state":"Stopped","final_state":"Stopped",'
@@ -359,7 +378,7 @@ class FakeWindowsTransport:
         )
 
 windows = WindowsClient(transport=FakeWindowsTransport(), timeout=60)
-assert windows.services.get_state("ConductorDisposable") == WindowsServiceState("Stopped")
+assert windows.services.get_state("MaestroDisposable") == WindowsServiceState("Stopped")
 assert not any(name == "pypsrp" or name.startswith("pypsrp.") for name in sys.modules)
 assert importlib.util.find_spec("pypsrp") is None
 

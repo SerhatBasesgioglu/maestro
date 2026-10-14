@@ -8,7 +8,7 @@ import sys
 
 import pytest
 
-from conductor.linux._scripts import COMPOSE_FILE
+from maestro.linux._scripts import COMPOSE_FILE
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="Remote helper uses POSIX file APIs.")
 
@@ -42,8 +42,8 @@ def test_helper_reads_and_atomically_replaces_one_regular_file_with_metadata(tmp
     assert after.st_ino != before.st_ino
     assert stat.S_IMODE(after.st_mode) == 0o640
     assert (after.st_uid, after.st_gid) == (before.st_uid, before.st_gid)
-    assert list(tmp_path.glob(".conductor-*")) == []
-    assert (tmp_path / (path.name + ".conductor.lock")).is_file()
+    assert list(tmp_path.glob(".maestro-*")) == []
+    assert (tmp_path / (path.name + ".maestro.lock")).is_file()
 
 
 def test_helper_refuses_a_stale_fingerprint_without_changing_file(tmp_path):
@@ -54,7 +54,7 @@ def test_helper_refuses_a_stale_fingerprint_without_changing_file(tmp_path):
     result = run_helper("put", path, observed["fingerprint"], b"unwanted write")
     assert result.returncode == 11
     assert result.stderr == b"" and path.read_text() == "external edit\n"
-    assert list(tmp_path.glob(".conductor-*")) == []
+    assert list(tmp_path.glob(".maestro-*")) == []
 
 
 @pytest.mark.parametrize(
@@ -91,7 +91,7 @@ def test_helper_refuses_a_symlink_edit_lock(tmp_path):
     fingerprint = json.loads(run_helper("get", path).stdout)["fingerprint"]
     sentinel = tmp_path / "sentinel"
     sentinel.write_text("unchanged")
-    (tmp_path / "compose.yaml.conductor.lock").symlink_to(sentinel)
+    (tmp_path / "compose.yaml.maestro.lock").symlink_to(sentinel)
     result = run_helper("put", path, fingerprint, b"unwanted write")
     assert result.returncode == 20
     assert sentinel.read_text() == "unchanged"
@@ -104,7 +104,7 @@ def test_helper_refuses_busy_advisory_lock_without_waiting(tmp_path):
     path = tmp_path / "compose.yaml"
     path.write_text("services: {}\n")
     fingerprint = json.loads(run_helper("get", path).stdout)["fingerprint"]
-    with (tmp_path / "compose.yaml.conductor.lock").open("w") as lock:
+    with (tmp_path / "compose.yaml.maestro.lock").open("w") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         result = run_helper("put", path, fingerprint, b"unwanted write")
     assert result.returncode == 11
@@ -117,10 +117,10 @@ def test_helper_preserves_extended_attributes_when_supported(tmp_path):
     path = tmp_path / "compose.yaml"
     path.write_text("services: {}\n")
     try:
-        os.setxattr(path, "user.conductor-test", b"value")
+        os.setxattr(path, "user.maestro-test", b"value")
     except OSError:
         pytest.skip("Temporary filesystem does not support user extended attributes.")
     fingerprint = json.loads(run_helper("get", path).stdout)["fingerprint"]
     result = run_helper("put", path, fingerprint, b"services: {} # new\n")
     assert result.returncode == 0
-    assert os.getxattr(path, "user.conductor-test") == b"value"
+    assert os.getxattr(path, "user.maestro-test") == b"value"

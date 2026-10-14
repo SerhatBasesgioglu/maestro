@@ -1,0 +1,61 @@
+"""Library-owned exception categories; external response bodies are never included."""
+
+
+class MaestroError(Exception):
+    """Base class for operational failures reported by Maestro."""
+
+
+class ConfigurationError(MaestroError, ValueError):
+    """Explicit caller configuration is invalid."""
+
+
+class MissingDependencyError(MaestroError, ImportError):
+    """An optional dependency required for the requested operation is unavailable."""
+
+
+class TransportError(MaestroError):
+    """Remote communication or protocol handling failed; a write may have completed."""
+
+
+class AuthenticationError(TransportError):
+    """The remote identity could not be authenticated."""
+
+
+class PermissionDeniedError(MaestroError):
+    """The authenticated identity is not allowed to perform the operation."""
+
+
+class TlsError(TransportError):
+    """TLS certificate verification or negotiation failed."""
+
+
+class OperationTimeoutError(MaestroError, TimeoutError):
+    """An operation exceeded its configured time budget."""
+
+
+class TransportTimeoutError(TransportError, OperationTimeoutError):
+    """Remote communication timed out; the outcome of a dispatched write may be unknown."""
+
+
+class ResourceNotFoundError(MaestroError):
+    """The explicitly requested resource does not exist."""
+
+
+class ConflictError(MaestroError):
+    """An operation conflicts with current resource state or a concurrency check."""
+
+
+class ProtocolError(MaestroError):
+    """An external service returned an unexpected response schema."""
+
+
+class HttpResponseError(MaestroError):
+    """An unsuccessful HTTP response, without URL, headers, or response body."""
+
+    def __init__(self, status_code: int) -> None:
+        self.status_code = status_code
+        super().__init__(f"Remote API returned HTTP {status_code}.")
+
+
+class RateLimitError(HttpResponseError):
+    """The remote service rate-limited this request; no write was replayed."""

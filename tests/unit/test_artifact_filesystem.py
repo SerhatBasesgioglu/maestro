@@ -6,15 +6,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from conductor.artifacts import (
+from maestro.artifacts import (
     ArtifactFileError,
     ArtifactInfo,
     ArtifactIntegrityError,
     FilesystemArtifacts,
     _files,
 )
-from conductor.artifacts._files import CHUNK_SIZE, file_chunks, snapshot_file, write_file
-from conductor.common.errors import (
+from maestro.artifacts._files import CHUNK_SIZE, file_chunks, snapshot_file, write_file
+from maestro.common.errors import (
     AuthenticationError,
     ConfigurationError,
     ConflictError,
@@ -410,7 +410,7 @@ def test_no_clobber_link_success_cleanup_failure_does_not_claim_rollback(tmp_pat
     original_unlink = Path.unlink
 
     def denied_staging_unlink(path, *args, **kwargs):
-        if path.name.startswith(".conductor-"):
+        if path.name.startswith(".maestro-"):
             raise PermissionError("hidden cleanup detail")
         return original_unlink(path, *args, **kwargs)
 
@@ -588,7 +588,7 @@ def test_write_file_cleanup_failure_preserves_primary_baseexception(
     original_unlink = Path.unlink
 
     def failed_cleanup(path, *args, **kwargs):
-        if path.name.startswith(".conductor-"):
+        if path.name.startswith(".maestro-"):
             raise OSError("private cleanup detail")
         return original_unlink(path, *args, **kwargs)
 
@@ -714,4 +714,4 @@ def test_artifact_models_are_immutable():
 def _staging_files(directory):
     if not directory.exists():
         return []
-    return list(directory.rglob(".conductor-*.tmp"))
+    return list(directory.rglob(".maestro-*.tmp"))

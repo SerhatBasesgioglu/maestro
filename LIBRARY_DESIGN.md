@@ -1,4 +1,4 @@
-# Conductor — Operations Library Design
+# Maestro — Operations Library Design
 
 This document records the library brief and the initial implementation choices.
 It is not an agent-rules file. Unimplemented APIs below are proposed interfaces,
@@ -6,8 +6,8 @@ not functionality promised by version 0.1.0.
 
 ## Purpose and boundaries
 
-Conductor is one reusable Python distribution (`conductor`) with the import
-package `conductor`, using a `src/` layout. A script, pipeline, CLI, FastAPI app,
+Maestro is one reusable Python distribution (`maestro`) with the import
+package `maestro`, using a `src/` layout. A script, pipeline, CLI, FastAPI app,
 or MCP server may consume it; none is mandatory.
 
 **The library owns:** API/SDK/remoting communication, explicit configuration and
@@ -15,6 +15,8 @@ credential interfaces, coherent resource operations, typed library-owned inputs
 and results, meaningful exceptions, bounded timeouts, appropriate retries, state
 checks, and safe mutation mechanisms. Workflows are added only for concrete,
 repeated cross-platform requirements.
+
+Library-owned exceptions share the `MaestroError` base class.
 
 **Consumers own:** command-line/HTTP/MCP/pipeline inputs, configuration and secret
 selection, caller authorization and approvals, output and exit-code translation,
@@ -32,7 +34,7 @@ hardcoded credentials; and automatic deployment rollback.
 CLI / FastAPI / MCP / pipeline / Python script
                          |
                          v
-                   Conductor library
+                   Maestro library
                   |                |
                   v                v
           Optional workflows   Individual integrations
@@ -60,7 +62,7 @@ named `Client` is not a reason to introduce inheritance.
 ### Current structure
 
 ```text
-src/conductor/
+src/maestro/
   __init__.py                 # No SDK imports or connections
   common/                     # Error/validation/JSON helpers and lazy injectable HTTP
   transports/
@@ -185,7 +187,7 @@ server versions, and endpoint restrictions still require live checks.
   environment selection, and any secret-to-configuration mutation remain consumer
   responsibilities.
 - Keep credential values out of logs, representations, and operational errors.
-  Conductor drops raw remote error text and invocation details. Third-party
+  Maestro drops raw remote error text and invocation details. Third-party
   wire logging and application traceback-local collection remain caller risks.
 - HTTP/API clients require TLS verification. WinRM accepts explicitly selected
   HTTPS or HTTP/5985; HTTPS can use a caller-supplied trusted CA bundle, while
@@ -279,7 +281,7 @@ from `Running` or `Paused`; a constant C# helper loaded with `Add-Type` calls
 `ControlService(SERVICE_CONTROL_STOP)`, then closes its handles. An active
 dependent service is not stopped or cascaded; SCM error 1051 is reported as a
 dependency failure. Pending/unknown states are rejected, and no resume operation
-exists. The SCM may start ordinary dependencies during start, but Conductor never
+exists. The SCM may start ordinary dependencies during start, but Maestro never
 enables disabled services. The observed final state may be transitional and is not
 a health guarantee.
 
@@ -345,16 +347,16 @@ separate target-owner validation boundary.
 
 ```text
 Machine 1: on-premises Windows pipeline agent
-    installs/calls Conductor
+    installs/calls Maestro
     -> PowerShell Remoting / WinRM over HTTPS with Kerberos, or explicit HTTP/5985
        with WSMan message wrapping and an existing supported authentication mode
 Machine 2: Windows IIS server
-    executes IIS commands; no Python or Conductor installation required
+    executes IIS commands; no Python or Maestro installation required
 ```
 
 Machine 2 needs IIS management components, `WebAdministration`, a configured
 remoting endpoint, restricted network access, and a suitably authorized identity.
-Conductor never invokes local PowerShell as a remote fallback.
+Maestro never invokes local PowerShell as a remote fallback.
 
 ### Pool contracts
 
@@ -410,9 +412,9 @@ check, rollback, or concurrency-control mechanism.
 ## Packaging and compatibility
 
 One versioned distribution with optional dependencies; the base package has none.
-Implemented extras: `conductor[iis]`, `conductor[windows]` (the same optional
-pypsrp dependency as IIS), `conductor[nexus]` and `conductor[openbao]` (HTTPX
-0.28.x), non-Windows Kerberos support via `conductor[iis,kerberos]`, and the
+Implemented extras: `maestro[iis]`, `maestro[windows]` (the same optional
+pypsrp dependency as IIS), `maestro[nexus]` and `maestro[openbao]` (HTTPX
+0.28.x), non-Windows Kerberos support via `maestro[iis,kerberos]`, and the
 independent `azure-devops`, `argocd`, and `sonarqube` extras using HTTPX 0.28.x. The
 `linux` extra adds ruamel.yaml only for Compose image edits; SSH/rsync use installed
 POSIX system tools. Imports do not connect to targets, require local IIS/Windows

@@ -50,6 +50,8 @@
   Caller-supplied Vault tokens/namespaces, lazy default transport, injectable borrowed
   HTTP transport, and secret-safe typed results; no login, token lifecycle,
   environment discovery, writes, or deployment workflow.
+- Distribution and import namespace is `maestro`, renamed from the prior `conductor`
+  namespace.
 
 Live Windows/domain authentication, IIS compatibility, and Windows service
 management must be verified on an approved non-production target before deployment.

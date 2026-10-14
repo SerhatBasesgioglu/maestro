@@ -1,7 +1,7 @@
 import pytest
 
-from conductor.iis import ApplicationPoolState, IisClient
-from conductor.transports import PowerShellRemoting
+from maestro.iis import ApplicationPoolState, IisClient
+from maestro.transports import PowerShellRemoting
 
 pytestmark = pytest.mark.integration
 

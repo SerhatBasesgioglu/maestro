@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"
 
 [project]
-name = "conductor"
+name = "maestro"
 version = "0.1.0"
 description = "Framework-independent operations library for internal delivery and infrastructure"
 readme = "README.md"
@@ -45,7 +45,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/conductor"]
+packages = ["src/maestro"]
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -76,7 +76,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.mypy]
 python_version = "3.11"
-files = ["src/conductor"]
+files = ["src/maestro"]
 strict = true
 
 [[tool.mypy.overrides]]
@@ -85,7 +85,7 @@ ignore_missing_imports = true
 
 [tool.coverage.run]
 branch = true
-source = ["conductor"]
+source = ["maestro"]
 
 [tool.coverage.report]
 show_missing = true

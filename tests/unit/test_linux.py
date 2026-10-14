@@ -5,8 +5,8 @@ from collections import deque
 import pytest
 from ruamel.yaml import YAML
 
-import conductor.linux.compose as compose_module
-from conductor.common.errors import (
+import maestro.linux.compose as compose_module
+from maestro.common.errors import (
     ConfigurationError,
     ConflictError,
     MissingDependencyError,
@@ -15,7 +15,7 @@ from conductor.common.errors import (
     ResourceNotFoundError,
     TransportTimeoutError,
 )
-from conductor.linux import (
+from maestro.linux import (
     ComposeFileError,
     ComposeProject,
     LinuxClient,
@@ -24,7 +24,7 @@ from conductor.linux import (
     ServiceNotFoundError,
     ServiceState,
 )
-from conductor.transports import CommandResult
+from maestro.transports import CommandResult
 
 PROJECT = ComposeProject("/opt/my app/compose.yaml", "my-app")
 DOCUMENT = (
@@ -275,13 +275,13 @@ def test_yaml_dependency_is_lazy_and_checked_before_remote_io(monkeypatch):
     original = builtins.__import__
 
     def without_yaml(name, *args, **kwargs):
-        if name == "conductor.linux._yaml":
+        if name == "maestro.linux._yaml":
             raise ImportError("PRIVATE")
         return original(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", without_yaml)
     transport = FakeSsh()
-    with pytest.raises(MissingDependencyError, match=r"conductor\[linux\]"):
+    with pytest.raises(MissingDependencyError, match=r"maestro\[linux\]"):
         LinuxClient(transport=transport).compose.set_image(PROJECT, "api", "registry/api:new")
     assert transport.calls == []
 

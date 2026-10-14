@@ -11,12 +11,12 @@ from pathlib import Path
 import httpx
 import pytest
 
-from conductor.artifacts import ArtifactInfo
-from conductor.artifacts._files import CHUNK_SIZE
-from conductor.artifacts.errors import ArtifactFileError, ArtifactIntegrityError
-from conductor.artifacts.nexus import NexusRawArtifacts, NexusRawConfig
-from conductor.artifacts.transport import ArtifactHttpResponse
-from conductor.common.errors import (
+from maestro.artifacts import ArtifactInfo
+from maestro.artifacts._files import CHUNK_SIZE
+from maestro.artifacts.errors import ArtifactFileError, ArtifactIntegrityError
+from maestro.artifacts.nexus import NexusRawArtifacts, NexusRawConfig
+from maestro.artifacts.transport import ArtifactHttpResponse
+from maestro.common.errors import (
     AuthenticationError,
     ConfigurationError,
     ConflictError,
@@ -425,7 +425,7 @@ def test_borrowed_and_owned_transport_lifetimes_and_closed_state(caplog, monkeyp
 
     owned = OwnedTransport()
     monkeypatch.setattr(
-        "conductor.artifacts.nexus.HttpxArtifactTransport",
+        "maestro.artifacts.nexus.HttpxArtifactTransport",
         lambda **kwargs: owned,
     )
     monkeypatched = NexusRawArtifacts(make_config())
@@ -446,7 +446,7 @@ def test_default_transport_construction_is_lazy_and_missing_dependency_actionabl
     transport.close()
 
     def without_httpx_adapter(name, *args, **kwargs):
-        if name == "conductor.artifacts._httpx":
+        if name == "maestro.artifacts._httpx":
             raise ImportError("private SECRET")
         return real_import(name, *args, **kwargs)
 
@@ -456,7 +456,7 @@ def test_default_transport_construction_is_lazy_and_missing_dependency_actionabl
     client = NexusRawArtifacts(make_config())
     with pytest.raises(MissingDependencyError) as failure:
         client.publish(source, "a.bin")
-    assert "conductor[nexus]" in str(failure.value)
+    assert "maestro[nexus]" in str(failure.value)
     assert "SECRET" not in "".join(traceback.format_exception(failure.value))
 
 
