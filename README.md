@@ -843,3 +843,7 @@ After 1.0, incompatible API changes require a major version. Document public
 changes in [CHANGELOG.md](CHANGELOG.md), build/test before publishing, and pin
 released versions in consumers. The approved private registry and release
 ownership remain to be supplied by your organization.
+
+## License
+
+This project is licensed under the [Apache License, Version 2.0](LICENSE).

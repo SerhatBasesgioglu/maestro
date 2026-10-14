@@ -55,8 +55,14 @@ def test_distribution_contains_typed_library_and_optional_only_runtime_dependenc
         assert not any(name.startswith("tests/") for name in names)
         metadata_name = next(name for name in names if name.endswith(".dist-info/METADATA"))
         metadata = email.message_from_bytes(archive.read(metadata_name))
+        dist_info_name = metadata_name.rsplit("/", 1)[0]
+        wheel_license_name = f"{dist_info_name}/licenses/LICENSE"
+        assert wheel_license_name in names
+        assert archive.read(wheel_license_name) == (ROOT / "LICENSE").read_bytes()
     assert metadata["Name"] == "maestro"
     assert metadata["Version"] == "0.1.0"
+    assert metadata["License-Expression"] == "Apache-2.0"
+    assert metadata.get_all("License-File") == ["LICENSE"]
     assert set(metadata.get_all("Provides-Extra")) == {
         "azure-devops",
         "argocd",
@@ -77,8 +83,14 @@ def test_distribution_contains_typed_library_and_optional_only_runtime_dependenc
         names = archive.getnames()
         pkg_info_name = next(name for name in names if name.endswith("/PKG-INFO"))
         sdist_metadata = email.message_from_bytes(archive.extractfile(pkg_info_name).read())
+        sdist_root = pkg_info_name.rsplit("/", 1)[0]
+        sdist_license_name = f"{sdist_root}/LICENSE"
+        assert sdist_license_name in names
+        assert archive.extractfile(sdist_license_name).read() == (ROOT / "LICENSE").read_bytes()
     assert sdist_metadata["Name"] == "maestro"
     assert sdist_metadata["Version"] == "0.1.0"
+    assert sdist_metadata["License-Expression"] == "Apache-2.0"
+    assert sdist_metadata.get_all("License-File") == ["LICENSE"]
     assert all(Path(name).parts[0].startswith("maestro-") for name in names)
     assert any(name.endswith("/src/maestro/py.typed") for name in names)
     assert not any("/src/conductor/" in name for name in names)
@@ -163,6 +175,10 @@ from maestro.transports import (
 )
 
 assert maestro.__version__ == importlib.metadata.version("maestro") == "0.1.0"
+maestro_distribution = importlib.metadata.distribution("maestro")
+assert maestro_distribution.metadata["License-Expression"] == "Apache-2.0"
+assert maestro_distribution.metadata.get_all("License-File") == ["LICENSE"]
+assert maestro_distribution.read_text("licenses/LICENSE") is not None
 assert issubclass(MissingDependencyError, MaestroError)
 assert list(logging.getLogger().handlers) == root_handlers
 assert not any(name == "pypsrp" or name.startswith("pypsrp.") for name in sys.modules)
