@@ -7,6 +7,8 @@ name = "maestro"
 version = "0.1.0"
 description = "Framework-independent operations library for internal delivery and infrastructure"
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = []
 classifiers = [
@@ -53,6 +55,7 @@ include = [
     "/tests",
     "/pyproject.toml",
     "/README.md",
+    "/LICENSE",
     "/LIBRARY_DESIGN.md",
     "/VERIFICATION.md",
     "/CHANGELOG.md",
