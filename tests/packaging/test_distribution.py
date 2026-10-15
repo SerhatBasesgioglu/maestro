@@ -3,6 +3,7 @@ import json
 import subprocess
 import sys
 import tarfile
+import tomllib
 import venv
 import zipfile
 from pathlib import Path
@@ -11,6 +12,9 @@ import pytest
 
 pytestmark = pytest.mark.packaging
 ROOT = Path(__file__).resolve().parents[2]
+PROJECT_VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"][
+    "version"
+]
 
 
 @pytest.fixture(scope="module")
@@ -60,7 +64,7 @@ def test_distribution_contains_typed_library_and_optional_only_runtime_dependenc
         assert wheel_license_name in names
         assert archive.read(wheel_license_name) == (ROOT / "LICENSE").read_bytes()
     assert metadata["Name"] == "maestro"
-    assert metadata["Version"] == "0.1.0"
+    assert metadata["Version"] == PROJECT_VERSION
     assert metadata["License-Expression"] == "Apache-2.0"
     assert metadata.get_all("License-File") == ["LICENSE"]
     assert set(metadata.get_all("Provides-Extra")) == {
@@ -88,13 +92,14 @@ def test_distribution_contains_typed_library_and_optional_only_runtime_dependenc
         assert sdist_license_name in names
         assert archive.extractfile(sdist_license_name).read() == (ROOT / "LICENSE").read_bytes()
     assert sdist_metadata["Name"] == "maestro"
-    assert sdist_metadata["Version"] == "0.1.0"
+    assert sdist_metadata["Version"] == PROJECT_VERSION
     assert sdist_metadata["License-Expression"] == "Apache-2.0"
     assert sdist_metadata.get_all("License-File") == ["LICENSE"]
     assert all(Path(name).parts[0].startswith("maestro-") for name in names)
     assert any(name.endswith("/src/maestro/py.typed") for name in names)
     assert not any("/src/conductor/" in name for name in names)
     assert any(name.endswith("/LIBRARY_DESIGN.md") for name in names)
+    assert any(name.endswith("/scripts/validate_release.py") for name in names)
     assert any(name.endswith("/tests/unit/test_application_pools.py") for name in names)
     for test_module in (
         "test_artifact_filesystem.py",
@@ -174,7 +179,8 @@ from maestro.transports import (
     CommandResult, OpenSshTransport, PowerShellRemoting, PowerShellResult,
 )
 
-assert maestro.__version__ == importlib.metadata.version("maestro") == "0.1.0"
+assert maestro.__version__ == importlib.metadata.version("maestro")
+assert maestro.__version__ == sys.argv[1]
 maestro_distribution = importlib.metadata.distribution("maestro")
 assert maestro_distribution.metadata["License-Expression"] == "Apache-2.0"
 assert maestro_distribution.metadata.get_all("License-File") == ["LICENSE"]
@@ -470,7 +476,7 @@ print(json.dumps({
 }))
 """
     completed = subprocess.run(
-        [str(python), "-I", "-c", consumer],
+        [str(python), "-I", "-c", consumer, PROJECT_VERSION],
         cwd=tmp_path,
         check=True,
         capture_output=True,

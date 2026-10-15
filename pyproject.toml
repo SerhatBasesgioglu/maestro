@@ -52,9 +52,11 @@ packages = ["src/maestro"]
 [tool.hatch.build.targets.sdist]
 include = [
     "/src",
+    "/scripts",
     "/tests",
     "/pyproject.toml",
     "/README.md",
+    "/RELEASING.md",
     "/LICENSE",
     "/LIBRARY_DESIGN.md",
     "/VERIFICATION.md",

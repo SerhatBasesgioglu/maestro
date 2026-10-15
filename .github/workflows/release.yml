@@ -1,0 +1,424 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-publication
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - name: Check out triggering commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate release context and source
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+
+          case "$EVENT_NAME" in
+            workflow_dispatch)
+              if [[ "$EVENT_REF" != "refs/heads/main" ]]; then
+                echo "Manual releases must be run from the main branch; selected ref was $EVENT_REF." >&2
+                exit 1
+              fi
+              ;;
+            push)
+              if [[ "$EVENT_REF" != refs/tags/v* ]]; then
+                echo "Release push runs must be triggered by a v-prefixed tag; ref was $EVENT_REF." >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo "Unsupported release event: $EVENT_NAME" >&2
+              exit 1
+              ;;
+          esac
+
+          validation_json="$RUNNER_TEMP/release-validation.json"
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            python3 scripts/validate_release.py --tag "${EVENT_REF#refs/tags/}" > "$validation_json"
+          else
+            python3 scripts/validate_release.py > "$validation_json"
+          fi
+
+          version=$(jq -er '.version | select(type == "string")' "$validation_json")
+          tag=$(jq -er '.tag | select(type == "string")' "$validation_json")
+          prerelease=$(jq -r '.prerelease | select(type == "boolean")' "$validation_json")
+          if [[ "$prerelease" != "true" && "$prerelease" != "false" ]]; then
+            echo "Release validator did not return a boolean prerelease value." >&2
+            exit 1
+          fi
+          sha=$(git rev-parse HEAD)
+          if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "The checked-out source did not resolve to a full Git commit SHA." >&2
+            exit 1
+          fi
+
+          if ! git merge-base --is-ancestor "$sha" origin/main; then
+            echo "Release source $sha is not an ancestor of origin/main; release only commits already on main." >&2
+            exit 1
+          fi
+          if ! git diff --quiet "$sha" origin/main -- .github/workflows; then
+            echo "Release source workflow files differ from origin/main. Run the release from main after workflow changes are merged." >&2
+            exit 1
+          fi
+
+          {
+            printf 'version=%s\n' "$version"
+            printf 'tag=%s\n' "$tag"
+            printf 'prerelease=%s\n' "$prerelease"
+            printf 'sha=%s\n' "$sha"
+          } >> "$GITHUB_OUTPUT"
+        shell: bash
+
+  checks:
+    name: Required CI checks
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish GitHub Release
+    needs:
+      - validate
+      - checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check out validated source commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Recheck validated source against main
+        env:
+          VALIDATED_SHA: ${{ needs.validate.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          checked_out_sha=$(git rev-parse HEAD)
+          if [[ "$checked_out_sha" != "$VALIDATED_SHA" ]]; then
+            echo "Publisher checkout $checked_out_sha does not match validated source $VALIDATED_SHA." >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$VALIDATED_SHA" origin/main; then
+            echo "Validated source $VALIDATED_SHA is no longer an ancestor of origin/main; refusing to publish." >&2
+            exit 1
+          fi
+          if ! git diff --quiet "$VALIDATED_SHA" origin/main -- .github/workflows; then
+            echo "Release source workflow files differ from origin/main. Run the release from main after workflow changes are merged." >&2
+            exit 1
+          fi
+        shell: bash
+
+      - name: Download and validate CI distributions
+        id: assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+
+          artifact_dir="$RUNNER_TEMP/ci-results"
+          rm -rf "$artifact_dir"
+          mkdir -p "$artifact_dir"
+          gh run download "$GITHUB_RUN_ID" -n ci-results-python-3.11 --dir "$artifact_dir"
+
+          ARTIFACT_DIR="$artifact_dir" python3 - <<'PY'
+          import email
+          import hashlib
+          import os
+          import re
+          import tarfile
+          import zipfile
+          from pathlib import Path, PurePosixPath
+
+          version = os.environ["VERSION"]
+          if re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:(?:a|b|rc)(?:0|[1-9][0-9]*))?", version) is None:
+              raise SystemExit("Validated version has an unexpected format.")
+
+          artifact_dir = Path(os.environ["ARTIFACT_DIR"])
+          dist_dir = artifact_dir / "dist"
+          wheel_files = sorted(dist_dir.glob("*.whl")) if dist_dir.is_dir() else []
+          sdist_files = sorted(dist_dir.glob("*.tar.gz")) if dist_dir.is_dir() else []
+          if len(wheel_files) != 1 or len(sdist_files) != 1:
+              raise SystemExit(
+                  f"Expected exactly one wheel and one sdist under {dist_dir}; "
+                  f"found {len(wheel_files)} wheel(s) and {len(sdist_files)} sdist(s)."
+              )
+
+          wheel, sdist = wheel_files[0], sdist_files[0]
+          if wheel.is_symlink() or sdist.is_symlink():
+              raise SystemExit("Distribution artifacts must not be symbolic links.")
+          if not wheel.name.startswith(f"maestro-{version}-"):
+              raise SystemExit(f"Wheel filename does not match maestro {version}: {wheel.name}")
+          if sdist.name != f"maestro-{version}.tar.gz":
+              raise SystemExit(f"Sdist filename does not match maestro {version}: {sdist.name}")
+
+          license_bytes = (Path.cwd() / "LICENSE").read_bytes()
+
+          def check_metadata(data: bytes, source: str) -> None:
+              metadata = email.message_from_bytes(data)
+              if metadata.get("Name") != "maestro":
+                  raise SystemExit(f"{source} has unexpected package name {metadata.get('Name')!r}.")
+              if metadata.get("Version") != version:
+                  raise SystemExit(f"{source} has unexpected version {metadata.get('Version')!r}.")
+              if metadata.get("License-Expression") != "Apache-2.0":
+                  raise SystemExit(f"{source} does not declare License-Expression: Apache-2.0.")
+              if metadata.get_all("License-File", []) != ["LICENSE"]:
+                  raise SystemExit(f"{source} must declare exactly License-File: LICENSE.")
+
+          def reject_legacy_namespace(names: list[str], source: str) -> None:
+              for name in names:
+                  parts = PurePosixPath(name).parts
+                  if any(part.casefold() == "conductor" for part in parts):
+                      raise SystemExit(f"{source} contains the retired conductor namespace: {name}")
+                  if any(
+                      part.casefold().startswith("conductor-")
+                      and part.casefold().endswith(".dist-info")
+                      for part in parts
+                  ):
+                      raise SystemExit(f"{source} contains retired conductor distribution metadata: {name}")
+
+          with zipfile.ZipFile(wheel) as archive:
+              names = archive.namelist()
+              reject_legacy_namespace(names, wheel.name)
+              metadata_names = [
+                  name for name in names if name.endswith(".dist-info/METADATA")
+              ]
+              if len(metadata_names) != 1:
+                  raise SystemExit(f"{wheel.name} must contain exactly one dist-info/METADATA.")
+              metadata_name = metadata_names[0]
+              check_metadata(archive.read(metadata_name), wheel.name)
+              dist_info = metadata_name.rsplit("/", 1)[0]
+              license_name = f"{dist_info}/licenses/LICENSE"
+              if license_name not in names or archive.read(license_name) != license_bytes:
+                  raise SystemExit(f"{wheel.name} must include the repository LICENSE in dist-info/licenses.")
+
+          with tarfile.open(sdist, "r:gz") as archive:
+              members = archive.getmembers()
+              names = [member.name for member in members]
+              reject_legacy_namespace(names, sdist.name)
+              if any(PurePosixPath(name).is_absolute() or ".." in PurePosixPath(name).parts for name in names):
+                  raise SystemExit(f"{sdist.name} contains an unsafe archive path.")
+              metadata_members = [member for member in members if PurePosixPath(member.name).name == "PKG-INFO"]
+              if len(metadata_members) != 1:
+                  raise SystemExit(f"{sdist.name} must contain exactly one PKG-INFO.")
+              metadata_member = metadata_members[0]
+              root = metadata_member.name.rsplit("/", 1)[0]
+              if root != f"maestro-{version}":
+                  raise SystemExit(f"{sdist.name} has unexpected source root {root!r}.")
+              metadata_file = archive.extractfile(metadata_member)
+              if metadata_file is None:
+                  raise SystemExit(f"{sdist.name} has an unreadable PKG-INFO.")
+              check_metadata(metadata_file.read(), sdist.name)
+              license_file = archive.extractfile(f"{root}/LICENSE")
+              if license_file is None or license_file.read() != license_bytes:
+                  raise SystemExit(f"{sdist.name} must include the repository LICENSE at its root.")
+
+          checksums = artifact_dir / "SHA256SUMS"
+          checksums.write_text(
+              "".join(
+                  f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n"
+                  for path in (wheel, sdist)
+              ),
+              encoding="utf-8",
+          )
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"wheel={wheel}\n")
+              output.write(f"sdist={sdist}\n")
+              output.write(f"checksums={checksums}\n")
+          PY
+        shell: bash
+
+      - name: Guard remote state and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          TAG: ${{ needs.validate.outputs.tag }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          PRERELEASE: ${{ needs.validate.outputs.prerelease }}
+          VALIDATED_SHA: ${{ needs.validate.outputs.sha }}
+          RUNNER_TEMP: ${{ runner.temp }}
+          WHEEL: ${{ steps.assets.outputs.wheel }}
+          SDIST: ${{ steps.assets.outputs.sdist }}
+          CHECKSUMS: ${{ steps.assets.outputs.checksums }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$GH_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "Unexpected repository identifier; refusing GitHub API requests." >&2
+            exit 1
+          fi
+          if [[ ! "$VALIDATED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Validated source SHA is malformed." >&2
+            exit 1
+          fi
+
+          api_get() {
+            local endpoint=$1
+            local destination=$2
+            local status
+            local url="https://api.github.com/repos/$GH_REPO"
+            if [[ -n "$endpoint" ]]; then
+              url+="/$endpoint"
+            fi
+            if ! status=$(curl --silent --show-error \
+              --connect-timeout 10 \
+              --max-time 30 \
+              --output "$destination" \
+              --write-out '%{http_code}' \
+              --header 'Accept: application/vnd.github+json' \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "$url"); then
+              echo "GitHub API request failed for $endpoint." >&2
+              return 1
+            fi
+            printf '%s' "$status"
+          }
+
+          require_tag_target() {
+            local ref_body="$RUNNER_TEMP/release-tag-ref.json"
+            local object_body="$RUNNER_TEMP/release-tag-object.json"
+            local status object_type object_sha depth
+
+            status=$(api_get "git/ref/tags/$TAG" "$ref_body")
+            if [[ "$status" != "200" ]]; then
+              echo "Expected release tag $TAG to exist while verifying its target; GitHub API returned HTTP $status." >&2
+              return 1
+            fi
+            object_type=$(jq -er '.object.type | select(type == "string")' "$ref_body")
+            object_sha=$(jq -er '.object.sha | select(type == "string")' "$ref_body")
+            depth=0
+
+            while true; do
+              if [[ ! "$object_sha" =~ ^[0-9a-f]{40}$ ]]; then
+                echo "Tag $TAG points to an unexpected Git object identifier." >&2
+                return 1
+              fi
+              case "$object_type" in
+                commit)
+                  if [[ "$object_sha" != "$VALIDATED_SHA" ]]; then
+                    echo "Tag $TAG resolves to $object_sha, not validated source $VALIDATED_SHA; refusing to retarget it." >&2
+                    return 1
+                  fi
+                  return 0
+                  ;;
+                tag)
+                  if (( depth >= 5 )); then
+                    echo "Tag $TAG has more than five nested annotated tags; refusing to follow it." >&2
+                    return 1
+                  fi
+                  depth=$((depth + 1))
+                  status=$(api_get "git/tags/$object_sha" "$object_body")
+                  if [[ "$status" != "200" ]]; then
+                    echo "Could not resolve annotated tag object for $TAG; GitHub API returned HTTP $status." >&2
+                    return 1
+                  fi
+                  object_type=$(jq -er '.object.type | select(type == "string")' "$object_body")
+                  object_sha=$(jq -er '.object.sha | select(type == "string")' "$object_body")
+                  ;;
+                *)
+                  echo "Tag $TAG points to unexpected Git object type $object_type; expected a commit or annotated tag." >&2
+                  return 1
+                  ;;
+              esac
+            done
+          }
+
+          repo_body="$RUNNER_TEMP/release-repository.json"
+          status=$(api_get "" "$repo_body")
+          if [[ "$status" != "200" ]] || ! jq -e --arg repo "$GH_REPO" '.full_name | ascii_downcase == ($repo | ascii_downcase)' "$repo_body" >/dev/null; then
+            echo "Cannot verify access to repository $GH_REPO (GitHub API returned HTTP $status); refusing to treat API errors as missing resources." >&2
+            exit 1
+          fi
+
+          release_list="$RUNNER_TEMP/release-list.json"
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" > "$release_list"
+          existing_releases=$(jq -s --arg tag "$TAG" '
+            if length > 0 and all(.[]; type == "array") then
+              [ .[][] | if (.tag_name | type) == "string" and (.draft | type) == "boolean" then . else error("release list contains malformed release metadata") end | select(.tag_name == $tag) ]
+            else
+              error("release list did not contain paginated JSON arrays")
+            end
+          ' "$release_list")
+          if ! jq -e 'length == 0' <<< "$existing_releases" >/dev/null; then
+            if jq -e 'any(.[]; .draft == false)' <<< "$existing_releases" >/dev/null; then
+              echo "A published release already exists for $TAG. Published releases are immutable; this workflow will not delete, overwrite, or replace one." >&2
+            else
+              echo "A draft release already exists for $TAG. Inspect it and, only if it is an unpublished draft, delete that draft manually before retrying. This workflow never resumes or overwrites an existing draft." >&2
+            fi
+            exit 1
+          fi
+
+          tag_ref_body="$RUNNER_TEMP/release-tag-ref.json"
+          status=$(api_get "git/ref/tags/$TAG" "$tag_ref_body")
+          case "$status" in
+            200)
+              require_tag_target
+              ;;
+            404)
+              if [[ "$EVENT_NAME" == "push" ]]; then
+                echo "Tag-triggered release requires existing tag $TAG; refusing to create a replacement tag." >&2
+                exit 1
+              fi
+              if [[ "$EVENT_NAME" != "workflow_dispatch" ]]; then
+                echo "Only a manual release from main may create missing tag $TAG." >&2
+                exit 1
+              fi
+              gh api --method POST "repos/$GH_REPO/git/refs" \
+                -f "ref=refs/tags/$TAG" \
+                -f "sha=$VALIDATED_SHA" \
+                > "$RUNNER_TEMP/release-created-tag.json"
+              require_tag_target
+              ;;
+            *)
+              echo "Could not determine tag state for $TAG; GitHub API returned HTTP $status." >&2
+              exit 1
+              ;;
+          esac
+
+          create_args=(release create "$TAG" --draft --target "$VALIDATED_SHA" --generate-notes --title "Maestro $VERSION" --verify-tag)
+          if [[ "$PRERELEASE" == "true" ]]; then
+            create_args+=(--prerelease)
+          fi
+          gh "${create_args[@]}"
+
+          require_tag_target
+          gh release upload "$TAG" "$WHEEL" "$SDIST" "$CHECKSUMS"
+          require_tag_target
+          gh release edit "$TAG" --draft=false
+        shell: bash

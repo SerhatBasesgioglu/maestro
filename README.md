@@ -13,16 +13,12 @@ integration placeholders or mandatory consumer wrappers.
 
 ## Install
 
-Publish to your approved private Python feed, then pin the version in consumers:
-
-```powershell
-python -m pip install "maestro[iis]==0.1.0"
-python -m pip install "maestro[windows]==0.1.0"
-python -m pip install "maestro[nexus]==0.1.0"
-python -m pip install "maestro[openbao]==0.1.0"
-python -m pip install "maestro[azure-devops,argocd,sonarqube]==0.1.0"
-python -m pip install "maestro[linux]==0.1.0"
-```
+The declared initial version, 0.1.0, has not been published. The planned release
+channel is downloadable wheel and source-distribution assets on GitHub Releases,
+not installation from a Python package index. The release workflow is not active
+until it is merged to the default branch. See [RELEASING.md](RELEASING.md) for the
+release status and installation guidance; until an asset is available, use the
+development setup below.
 
 The base distribution has no runtime dependencies. IIS remoting and Windows
 service management use optional `pypsrp` 0.9.x, selected by the `iis` and `windows`
@@ -38,10 +34,6 @@ any client does not load its optional HTTP/remoting dependency or open a connect
 Linux SSH/rsync commands use installed system tools rather than a Python SSH SDK.
 The optional `linux` extra supplies ruamel.yaml 0.18.x **only for Compose image-file
 edits**. Importing Linux clients does not load YAML libraries or start processes.
-
-No public-registry publication or feed configuration is included. Confirm your
-private feed's package-name availability, release ownership, and approval policy
-before publishing. Version 0.1.0 is the initial development release.
 
 ## HTTP integrations
 
@@ -834,15 +826,12 @@ Live mutation/concurrency, negative authentication/TLS/RBAC, server versions, an
 restoration require separately approved disposable resources. Do not use pytest
 `--showlocals` or share a secret-bearing config when reporting test failures.
 
-## Compatibility and releases
+## Versioning and releases
 
-Python 3.11+; a synchronous public API; one distribution with independently
-importable integrations. Use Semantic Versioning: before 1.0, incompatible API
-changes require a minor version bump; patch versions are compatible fixes.
-After 1.0, incompatible API changes require a major version. Document public
-changes in [CHANGELOG.md](CHANGELOG.md), build/test before publishing, and pin
-released versions in consumers. The approved private registry and release
-ownership remain to be supplied by your organization.
+Version 0.1.0 is currently declared but unpublished. See
+[RELEASING.md](RELEASING.md) for the version policy, GitHub Release procedure, and
+changelog updates. GitHub Release assets are not a Python package-index
+publication.
 
 ## License
 
