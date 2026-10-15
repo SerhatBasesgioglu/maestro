@@ -6,11 +6,34 @@ targets/credentials, typed results, safe parameter binding, concurrency-aware
 writes, meaningful failures, and optional dependencies.
 The highest-risk boundary is an uncertain remote mutation: success or failure of
 the local request does not alone prove the final remote state, completed pipeline,
-or successful deployment. Kubernetes/workflows remain outside this release.
+or successful deployment. Kubernetes and consumer/deployment workflows remain
+outside this release.
 
 The dated records below retain commands and package names as they were run. Any
 `conductor` package reference in those records describes the pre-rename namespace;
 it is not current install or import guidance.
+
+## Release automation local baseline — 2026-10-15
+
+- Python 3.11.15: locked dependency checks, Ruff lint/format, and mypy passed.
+  The exact CI pytest command reported **935 passed, 7 skipped, 95.52%** total
+  coverage; the no-isolation wheel/sdist build passed.
+- A fresh Python 3.14.6 environment passed the release and packaging tests
+  (**30 passed**) and the no-isolation build. The primary environment remains
+  Python 3.11.15; application source and dependency versions are unchanged.
+- Both builds verified version 0.1.0, Apache-2.0 metadata, matching LICENSE bytes,
+  no retired namespace, and the release helper and guide in the sdist.
+- YAML 1.2 parsing, Bash syntax, and inline Python compilation passed. Artifact
+  fixtures accepted valid distributions and rejected missing wheels, incorrect
+  versions, and modified licenses. Thirteen publisher-stub cases passed; prior
+  same-hash checks also covered explicit manual tag creation and draft guards.
+- Independent static review found no remaining blockers after explicit tag
+  creation, paginated draft detection, and tag verification immediately before
+  publication. The tested release workflow SHA-256 is
+  `d679d7aab3442e25c3d2548e8ee459fd83937d126090ddfa8f86de23bedfb445`.
+- Publisher checks used synthetic fixtures and fake GitHub commands only.
+  Hosted release execution, actionlint, and actual publication remain unverified;
+  no release was published by this validation.
 
 ## Hosted CI preflight — 2026-10-14
 

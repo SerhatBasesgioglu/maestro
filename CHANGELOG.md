@@ -52,11 +52,14 @@
   environment discovery, writes, or deployment workflow.
 - Distribution and import namespace is `maestro`, renamed from the prior `conductor`
   namespace.
+- Prepare a manually triggered GitHub Release workflow for the declared version,
+  with distribution assets and checksums; it is not active until merged to the
+  default branch.
 
 Live Windows/domain authentication, IIS compatibility, and Windows service
 management must be verified on an approved non-production target before deployment.
 Nexus server/authentication/repository policy and mounted SMB/NFS behavior also
 require separately approved target validation.
 HTTP server versions, authentication, permissions, and mutation semantics also
-require live validation. Kubernetes, workflows, CLI, API/MCP servers, and consumer
-pipelines remain unimplemented.
+require live validation. Kubernetes, CLI, API/MCP servers, and product-level
+consumer/deployment workflows remain unimplemented.
